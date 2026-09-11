@@ -592,6 +592,81 @@ button {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
 }
 
+/* --- Lock screen --- */
+
+.lock-screen {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: var(--cream-100);
+  padding: 24px;
+}
+
+.lock-title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--leaf-700);
+}
+
+.lock-dots {
+  display: flex;
+  gap: 14px;
+}
+
+.lock-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--leaf-500);
+  background: transparent;
+}
+
+.lock-dot.filled {
+  background: var(--leaf-700);
+  border-color: var(--leaf-700);
+}
+
+.lock-dots-error .lock-dot {
+  border-color: var(--chili-500);
+}
+
+.lock-dots-error .lock-dot.filled {
+  background: var(--chili-500);
+  border-color: var(--chili-500);
+}
+
+.lock-error {
+  color: var(--chili-600);
+  font-size: 13px;
+  font-weight: 600;
+  height: 16px;
+}
+
+.lock-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 64px);
+  gap: 16px;
+}
+
+.lock-keypad button {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-900);
+}
+
+.lock-keypad span {
+  width: 64px;
+  height: 64px;
+}
+
 /* --- Payment receipt (print) --- */
 
 .receipt-sheet {
