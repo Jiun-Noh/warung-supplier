@@ -66,8 +66,15 @@ create table if not exists payments (
   created_at timestamptz not null default now()
 );
 
-alter table delivery_items
-  add constraint if not exists delivery_items_payment_fk foreign key (payment_id) references payments(id) on delete set null;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'delivery_items_payment_fk'
+  ) then
+    alter table delivery_items
+      add constraint delivery_items_payment_fk foreign key (payment_id) references payments(id) on delete set null;
+  end if;
+end $$;
 
 alter table delivery_items disable row level security;
 alter table payments disable row level security;
