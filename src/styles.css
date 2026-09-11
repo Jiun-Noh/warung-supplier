@@ -474,6 +474,102 @@ button {
   flex: 1;
 }
 
+.combo-field {
+  position: relative;
+}
+
+.combo-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 40;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+
+.combo-option {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.combo-option:last-child {
+  border-bottom: none;
+}
+
+.combo-option-sub {
+  font-size: 11px;
+  color: var(--ink-500);
+  margin-top: 2px;
+}
+
+.combo-empty {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--ink-500);
+}
+
+.combo-selected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  gap: 10px;
+}
+
+.combo-selected-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.combo-selected-sub {
+  font-size: 12px;
+  color: var(--ink-500);
+  margin-top: 2px;
+}
+
+.delivery-row {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 12px 2px;
+  margin-bottom: 12px;
+}
+
+.delivery-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.delivery-row-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--leaf-700);
+}
+
+.delivery-row-remove {
+  background: none;
+  border: none;
+  color: var(--chili-600);
+  font-size: 15px;
+  font-weight: 700;
+  padding: 2px 6px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 .empty-state {
   text-align: center;
   color: var(--ink-500);
@@ -507,6 +603,11 @@ button {
   font-family: "Courier New", monospace;
   color: #000;
   padding: 8px 0 16px;
+}
+
+@page {
+  size: 58mm auto;
+  margin: 0;
 }
 
 .receipt-header {
@@ -543,6 +644,9 @@ button {
 }
 
 @media print {
+  body {
+    background: #fff;
+  }
   body * {
     visibility: hidden;
   }
@@ -554,7 +658,8 @@ button {
     position: absolute;
     top: 0;
     left: 0;
-    width: 80mm;
+    width: 58mm;
+    padding: 2mm 3mm 6mm;
   }
   .no-print {
     display: none !important;

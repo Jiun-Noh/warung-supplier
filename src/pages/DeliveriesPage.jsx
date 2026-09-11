@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient.js";
-import { todayISODate } from "../utils.js";
+import { formatRupiah, todayISODate } from "../utils.js";
 
 function addDays(isoDate, days) {
   const d = new Date(isoDate + "T00:00:00");
@@ -11,141 +11,309 @@ function addDays(isoDate, days) {
 function groupByProvider(items) {
   const map = {};
   for (const item of items) {
-    const key = item.providers?.name || "Tanpa provider";
-    (map[key] ??= []).push(item);
+    const key = item.provider_id || "none";
+    if (!map[key]) {
+      map[key] = { providerName: item.providers?.name || "Tanpa provider", items: [], total: 0 };
+    }
+    map[key].items.push(item);
+    map[key].total += item.qty * (item.unit_cost || 0);
   }
-  return map;
+  return Object.values(map);
+}
+
+function ComboSearch({ label, placeholder, options, getLabel, getSubLabel, selected, onSelect, onClear, emptyLabel }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  if (selected) {
+    return (
+      <div className="form-field">
+        {label && <label>{label}</label>}
+        <div className="combo-selected">
+          <div>
+            <div className="combo-selected-name">{getLabel(selected)}</div>
+            {getSubLabel && <div className="combo-selected-sub">{getSubLabel(selected)}</div>}
+          </div>
+          <button type="button" className="btn-secondary" onClick={onClear}>
+            Ganti
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const filtered = (
+    query.trim()
+      ? options.filter((o) => getLabel(o).toLowerCase().includes(query.trim().toLowerCase()))
+      : options
+  ).slice(0, 8);
+
+  return (
+    <div className="form-field combo-field">
+      {label && <label>{label}</label>}
+      <input
+        type="text"
+        placeholder={placeholder}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+      />
+      {open && (
+        <div className="combo-dropdown">
+          {filtered.length === 0 && <div className="combo-empty">{emptyLabel}</div>}
+          {filtered.map((o) => (
+            <div
+              key={o.id}
+              className="combo-option"
+              onMouseDown={(e) => {
+                e.preventDefault();
+                onSelect(o);
+                setQuery("");
+                setOpen(false);
+              }}
+            >
+              <div>{getLabel(o)}</div>
+              {getSubLabel && <div className="combo-option-sub">{getSubLabel(o)}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function emptyRow() {
+  return { key: Math.random().toString(36).slice(2), product: null, qty: "" };
+}
+
+function AddDeliverySheet({ date, providers, products, onSave, onClose, onToast }) {
+  const [provider, setProvider] = useState(null);
+  const [rows, setRows] = useState([emptyRow()]);
+  const [saving, setSaving] = useState(false);
+
+  const providerProducts = provider ? products.filter((p) => p.provider_id === provider.id) : [];
+
+  function updateRow(key, patch) {
+    setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
+  }
+
+  function addRow() {
+    setRows((rs) => [...rs, emptyRow()]);
+  }
+
+  function removeRow(key) {
+    setRows((rs) => (rs.length === 1 ? [emptyRow()] : rs.filter((r) => r.key !== key)));
+  }
+
+  async function handleSave() {
+    const validRows = rows.filter((r) => r.product && Number(r.qty) > 0);
+    if (validRows.length === 0) {
+      onToast("Pilih barang dan isi jumlah dulu");
+      return;
+    }
+    setSaving(true);
+    const ok = await onSave(
+      validRows.map((r) => ({ product: r.product, qty: Number(r.qty) })),
+      date
+    );
+    setSaving(false);
+    if (!ok) return;
+    onToast(`Penerimaan tersimpan · ${validRows.length} barang`);
+    onClose();
+  }
+
+  return (
+    <div className="sheet-backdrop" onClick={onClose}>
+      <div className="sheet" onClick={(e) => e.stopPropagation()}>
+        <h2>Catat Penerimaan · {date}</h2>
+
+        <ComboSearch
+          label="Provider"
+          placeholder="Cari provider…"
+          options={providers}
+          getLabel={(p) => p.name}
+          selected={provider}
+          onSelect={(p) => {
+            setProvider(p);
+            setRows([emptyRow()]);
+          }}
+          onClear={() => {
+            setProvider(null);
+            setRows([emptyRow()]);
+          }}
+          emptyLabel="Provider tidak ditemukan"
+        />
+
+        {provider ? (
+          <>
+            {rows.map((row, idx) => {
+              const usedIds = rows.filter((r) => r.key !== row.key && r.product).map((r) => r.product.id);
+              const rowOptions = providerProducts.filter((p) => !usedIds.includes(p.id));
+              return (
+                <div className="delivery-row" key={row.key}>
+                  <div className="delivery-row-header">
+                    <span className="delivery-row-title">Barang {idx + 1}</span>
+                    <button
+                      type="button"
+                      className="delivery-row-remove"
+                      onClick={() => removeRow(row.key)}
+                      aria-label="Hapus baris"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <ComboSearch
+                    placeholder="Cari barang…"
+                    options={rowOptions}
+                    getLabel={(p) => p.name}
+                    getSubLabel={(p) => p.providers?.name || "Tanpa provider"}
+                    selected={row.product}
+                    onSelect={(p) => updateRow(row.key, { product: p })}
+                    onClear={() => updateRow(row.key, { product: null })}
+                    emptyLabel="Barang tidak ditemukan untuk provider ini"
+                  />
+                  <div className="form-field">
+                    <label>Jumlah</label>
+                    <input
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={row.qty}
+                      onChange={(e) => updateRow(row.key, { qty: e.target.value.replace(/[^0-9]/g, "") })}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+
+            <button className="btn-secondary" style={{ width: "100%", marginBottom: 14 }} onClick={addRow}>
+              + Tambah Baris
+            </button>
+          </>
+        ) : (
+          <div className="empty-state" style={{ padding: "20px 4px" }}>
+            Pilih provider dulu untuk memilih barang.
+          </div>
+        )}
+
+        <div className="sheet-actions">
+          <button className="btn-secondary" style={{ flex: 1 }} onClick={onClose}>
+            Batal
+          </button>
+          <button className="btn-primary" style={{ flex: 1 }} disabled={saving} onClick={handleSave}>
+            {saving ? "Menyimpan…" : "Simpan Semua"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function DeliveriesPage({ onToast }) {
+  const [date, setDate] = useState(todayISODate());
+  const [providers, setProviders] = useState([]);
   const [products, setProducts] = useState([]);
-  const [inputs, setInputs] = useState({}); // supplierProductId -> string
-  const [savedInputs, setSavedInputs] = useState({});
-  const [rowStatus, setRowStatus] = useState({}); // supplierProductId -> "saving" | "saved" | "error"
+  const [dayItems, setDayItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState("");
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   useEffect(() => {
-    load();
+    loadCatalog();
   }, []);
 
-  async function load() {
-    setLoading(true);
-    const today = todayISODate();
-    const [{ data: productData, error: productErr }, { data: deliveryData, error: deliveryErr }] =
+  useEffect(() => {
+    loadDay(date);
+  }, [date]);
+
+  async function loadCatalog() {
+    const [{ data: providerData, error: providerErr }, { data: productData, error: productErr }] =
       await Promise.all([
+        supabase.from("providers").select("*").order("name", { ascending: true }),
         supabase
           .from("supplier_products")
           .select("*, providers(name)")
           .eq("active", true)
           .order("name", { ascending: true }),
-        supabase.from("delivery_items").select("*").eq("delivery_date", today),
       ]);
+    if (providerErr) console.error(providerErr);
     if (productErr) console.error(productErr);
-    if (deliveryErr) console.error(deliveryErr);
-
-    const deliveryMap = {};
-    (deliveryData || []).forEach((d) => {
-      if (d.supplier_product_id) deliveryMap[d.supplier_product_id] = d;
-    });
-
-    const initialInputs = {};
-    (productData || []).forEach((p) => {
-      const row = deliveryMap[p.id];
-      initialInputs[p.id] = row ? String(row.qty) : "";
-    });
-
+    setProviders(providerData || []);
     setProducts(productData || []);
-    setInputs(initialInputs);
-    setSavedInputs(initialInputs);
-    setRowStatus({});
+  }
+
+  async function loadDay(forDate) {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("delivery_items")
+      .select("*, providers(name)")
+      .eq("delivery_date", forDate)
+      .order("product_name", { ascending: true });
+    if (error) console.error(error);
+    setDayItems(data || []);
     setLoading(false);
   }
 
-  function setQty(productId, value) {
-    const cleaned = value.replace(/[^0-9]/g, "");
-    setInputs((s) => ({ ...s, [productId]: cleaned }));
-  }
-
-  async function saveOne(productId) {
-    const raw = inputs[productId] ?? "";
-    if (raw === "" || raw === savedInputs[productId]) return;
-
-    const product = products.find((p) => p.id === productId);
-    if (!product) return;
-
-    setRowStatus((s) => ({ ...s, [productId]: "saving" }));
-    const today = todayISODate();
-    const { error } = await supabase.from("delivery_items").upsert(
-      [
-        {
-          delivery_date: today,
-          provider_id: product.provider_id,
-          supplier_product_id: product.id,
-          product_name: product.name,
-          qty: Number(raw),
-          unit_cost: product.net_price || 0,
-          due_date: addDays(today, product.due_days || 1),
-        },
-      ],
-      { onConflict: "supplier_product_id,delivery_date" }
-    );
-
-    if (error) {
-      console.error(error);
-      setRowStatus((s) => ({ ...s, [productId]: "error" }));
-      onToast("Gagal menyimpan otomatis");
-      return;
-    }
-
-    setSavedInputs((s) => ({ ...s, [productId]: raw }));
-    setRowStatus((s) => ({ ...s, [productId]: "saved" }));
-    setTimeout(() => {
-      setRowStatus((s) => {
-        if (s[productId] !== "saved") return s;
-        const next = { ...s };
-        delete next[productId];
-        return next;
-      });
-    }, 1200);
-  }
-
-  async function saveAll() {
-    const today = todayISODate();
-    const rows = products
-      .filter((p) => inputs[p.id] !== "" && inputs[p.id] !== undefined)
-      .map((p) => ({
-        delivery_date: today,
-        provider_id: p.provider_id,
-        supplier_product_id: p.id,
-        product_name: p.name,
-        qty: Number(inputs[p.id]),
-        unit_cost: p.net_price || 0,
-        due_date: addDays(today, p.due_days || 1),
-      }));
-
-    if (rows.length === 0) {
-      onToast("Isi jumlah barang yang diterima dulu");
-      return;
-    }
-
-    setSaving(true);
+  async function saveItems(rows, deliveryDate) {
+    const payload = rows.map(({ product, qty }) => ({
+      delivery_date: deliveryDate,
+      provider_id: product.provider_id,
+      supplier_product_id: product.id,
+      product_name: product.name,
+      qty,
+      unit_cost: product.net_price || 0,
+      due_date: addDays(deliveryDate, product.due_days || 1),
+    }));
     const { error } = await supabase
       .from("delivery_items")
-      .upsert(rows, { onConflict: "supplier_product_id,delivery_date" });
-    setSaving(false);
-
+      .upsert(payload, { onConflict: "supplier_product_id,delivery_date" });
     if (error) {
       console.error(error);
       onToast("Gagal menyimpan");
-      return;
+      return false;
     }
-    onToast(`Penerimaan tersimpan · ${rows.length} barang`);
-    load();
+    return true;
   }
 
-  if (loading) return <div className="empty-state">Memuat…</div>;
+  async function saveEditQty() {
+    if (!editing) return;
+    const qty = Number(editing.qty);
+    if (!qty || qty <= 0) {
+      onToast("Jumlah harus lebih dari 0");
+      return;
+    }
+    const { error } = await supabase.from("delivery_items").update({ qty }).eq("id", editing.id);
+    if (error) {
+      console.error(error);
+      onToast("Gagal menyimpan perubahan");
+      return;
+    }
+    setEditing(null);
+    onToast("Tersimpan");
+    loadDay(date);
+  }
+
+  async function deleteItem(id) {
+    const { error } = await supabase.from("delivery_items").delete().eq("id", id);
+    if (error) {
+      console.error(error);
+      onToast("Gagal menghapus");
+      return;
+    }
+    setEditing(null);
+    onToast("Dihapus");
+    loadDay(date);
+  }
+
+  if (providers.length === 0) {
+    return (
+      <div className="empty-state">
+        Belum ada provider.
+        <br />
+        Tambahkan dulu di tab "Provider".
+      </div>
+    );
+  }
 
   if (products.length === 0) {
     return (
@@ -157,63 +325,91 @@ export default function DeliveriesPage({ onToast }) {
     );
   }
 
-  const filteredProducts = search.trim()
-    ? products.filter((p) => p.name.toLowerCase().includes(search.trim().toLowerCase()))
-    : products;
-  const grouped = groupByProvider(filteredProducts);
+  const grouped = groupByProvider(dayItems);
+  const grandTotal = dayItems.reduce((sum, it) => sum + it.qty * (it.unit_cost || 0), 0);
 
   return (
     <div>
-      <div className="section-title">Catat barang yang diterima dari provider pagi ini</div>
+      <input type="date" className="date-input" value={date} onChange={(e) => setDate(e.target.value)} />
 
-      <input
-        type="text"
-        className="search-input"
-        placeholder="Cari barang…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      <button className="btn-primary" style={{ width: "100%", marginBottom: 14 }} onClick={() => setShowAdd(true)}>
+        + Catat Penerimaan Baru
+      </button>
 
-      {filteredProducts.length === 0 && (
-        <div className="empty-state">Tidak ada barang yang cocok dengan "{search}"</div>
-      )}
-
-      {Object.entries(grouped).map(([providerName, items]) => (
-        <div className="category-block" key={providerName}>
-          <div className="category-title">{providerName}</div>
-          {items.map((p) => (
-            <div className="stock-row" key={p.id}>
-              <div>
-                <div className="name">{p.name}</div>
-                <div className="hint">Batas jual: {p.due_days} hari</div>
+      {loading ? (
+        <div className="empty-state">Memuat…</div>
+      ) : dayItems.length === 0 ? (
+        <div className="empty-state">Belum ada barang yang dicatat untuk tanggal ini.</div>
+      ) : (
+        <>
+          {grouped.map((g) => (
+            <div className="category-block" key={g.providerName}>
+              <div className="category-title">
+                {g.providerName} · {formatRupiah(g.total)}
               </div>
-              <div className="inputs">
-                <div className="qty-field">
-                  <label>Jumlah</label>
-                  <input
-                    className={
-                      "qty-input" +
-                      (rowStatus[p.id] === "saved" ? " qty-input-saved" : "") +
-                      (rowStatus[p.id] === "error" ? " qty-input-error" : "")
-                    }
-                    inputMode="numeric"
-                    placeholder="0"
-                    value={inputs[p.id] || ""}
-                    onChange={(e) => setQty(p.id, e.target.value)}
-                    onBlur={() => saveOne(p.id)}
-                  />
+              {g.items.map((it) => (
+                <div className="list-row" key={it.id} onClick={() => setEditing({ ...it, qty: String(it.qty) })}>
+                  <div>
+                    <div className="name">{it.product_name}</div>
+                    <div className="meta">
+                      {it.qty} × {formatRupiah(it.unit_cost)} · Batas {it.due_date}
+                    </div>
+                  </div>
+                  <div style={{ fontWeight: 700 }}>{formatRupiah(it.qty * it.unit_cost)}</div>
                 </div>
-              </div>
+              ))}
             </div>
           ))}
-        </div>
-      ))}
 
-      <div className="sticky-save">
-        <button className="btn-primary" style={{ width: "100%" }} disabled={saving} onClick={saveAll}>
-          {saving ? "Menyimpan…" : "Simpan Semua Penerimaan"}
-        </button>
-      </div>
+          <div className="list-row" style={{ background: "transparent", border: "none" }}>
+            <div className="name" style={{ fontWeight: 700 }}>
+              Total
+            </div>
+            <div style={{ fontWeight: 800, fontSize: 16 }}>{formatRupiah(grandTotal)}</div>
+          </div>
+        </>
+      )}
+
+      {showAdd && (
+        <AddDeliverySheet
+          date={date}
+          providers={providers}
+          products={products}
+          onSave={saveItems}
+          onToast={onToast}
+          onClose={() => {
+            setShowAdd(false);
+            loadDay(date);
+          }}
+        />
+      )}
+
+      {editing && (
+        <div className="sheet-backdrop" onClick={() => setEditing(null)}>
+          <div className="sheet" onClick={(e) => e.stopPropagation()}>
+            <h2>{editing.product_name}</h2>
+            <div className="form-field">
+              <label>Jumlah</label>
+              <input
+                inputMode="numeric"
+                value={editing.qty}
+                onChange={(e) => setEditing((f) => ({ ...f, qty: e.target.value.replace(/[^0-9]/g, "") }))}
+              />
+            </div>
+            <div className="sheet-actions">
+              <button className="btn-danger" onClick={() => deleteItem(editing.id)}>
+                Hapus
+              </button>
+              <button className="btn-secondary" onClick={() => setEditing(null)}>
+                Batal
+              </button>
+              <button className="btn-primary" onClick={saveEditQty}>
+                Simpan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
