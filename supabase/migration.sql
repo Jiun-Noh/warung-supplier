@@ -32,3 +32,42 @@ create index if not exists idx_supplier_products_provider on supplier_products (
 -- ⚠️ 프로토타입 단계: RLS 비활성화 (warung-stock과 동일한 전제)
 alter table providers disable row level security;
 alter table supplier_products disable row level security;
+
+-- 매일 아침 납품 기록. 상품당 하루 한 행 (같은 상품이 하루에 두 번 납품되는 일은 없다는 전제).
+-- product_name/unit_cost/due_date는 납품 시점 스냅샷 — 나중에 supplier_products 값이 바뀌어도
+-- 과거 납품 기록의 금액/기한은 그대로 유지됩니다.
+create table if not exists delivery_items (
+  id uuid primary key default gen_random_uuid(),
+  delivery_date date not null default current_date,
+  provider_id uuid references providers(id) on delete set null,
+  supplier_product_id uuid references supplier_products(id) on delete set null,
+  product_name text not null,
+  qty integer not null default 0,
+  unit_cost integer not null default 0,
+  due_date date not null,
+  cleared boolean not null default false,
+  paid boolean not null default false,
+  payment_id uuid,
+  created_at timestamptz not null default now(),
+  unique (supplier_product_id, delivery_date)
+);
+
+create index if not exists idx_delivery_items_date on delivery_items (delivery_date);
+create index if not exists idx_delivery_items_due on delivery_items (due_date);
+create index if not exists idx_delivery_items_provider on delivery_items (provider_id);
+
+-- 프로바이더별 대금 정산 기록. 결제 시점에 밀려있던 delivery_items를 한꺼번에 paid=true로 묶습니다.
+create table if not exists payments (
+  id uuid primary key default gen_random_uuid(),
+  provider_id uuid references providers(id) on delete set null,
+  provider_name text not null,
+  amount integer not null,
+  paid_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+alter table delivery_items
+  add constraint if not exists delivery_items_payment_fk foreign key (payment_id) references payments(id) on delete set null;
+
+alter table delivery_items disable row level security;
+alter table payments disable row level security;
