@@ -84,7 +84,7 @@ function ComboSearch({ label, placeholder, options, getLabel, getSubLabel, selec
 }
 
 function emptyRow() {
-  return { key: Math.random().toString(36).slice(2), product: null, qty: "" };
+  return { key: Math.random().toString(36).slice(2), product: null, qty: "", unitCost: "" };
 }
 
 function AddDeliverySheet({ date, providers, products, onSave, onClose, onToast }) {
@@ -114,7 +114,7 @@ function AddDeliverySheet({ date, providers, products, onSave, onClose, onToast 
     }
     setSaving(true);
     const ok = await onSave(
-      validRows.map((r) => ({ product: r.product, qty: Number(r.qty) })),
+      validRows.map((r) => ({ product: r.product, qty: Number(r.qty), unitCost: Number(r.unitCost) || 0 })),
       date
     );
     setSaving(false);
@@ -164,23 +164,40 @@ function AddDeliverySheet({ date, providers, products, onSave, onClose, onToast 
                     </button>
                   </div>
                   <ComboSearch
+                    label="Barang"
                     placeholder="Cari barang…"
                     options={rowOptions}
                     getLabel={(p) => p.name}
                     getSubLabel={(p) => p.providers?.name || "Tanpa provider"}
                     selected={row.product}
-                    onSelect={(p) => updateRow(row.key, { product: p })}
-                    onClear={() => updateRow(row.key, { product: null })}
+                    onSelect={(p) =>
+                      updateRow(row.key, {
+                        product: p,
+                        unitCost: p.net_price != null ? String(p.net_price) : "",
+                      })
+                    }
+                    onClear={() => updateRow(row.key, { product: null, unitCost: "" })}
                     emptyLabel="Barang tidak ditemukan untuk provider ini"
                   />
-                  <div className="form-field">
-                    <label>Jumlah</label>
-                    <input
-                      inputMode="numeric"
-                      placeholder="0"
-                      value={row.qty}
-                      onChange={(e) => updateRow(row.key, { qty: e.target.value.replace(/[^0-9]/g, "") })}
-                    />
+                  <div className="form-row-split">
+                    <div className="form-field">
+                      <label>Jumlah</label>
+                      <input
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={row.qty}
+                        onChange={(e) => updateRow(row.key, { qty: e.target.value.replace(/[^0-9]/g, "") })}
+                      />
+                    </div>
+                    <div className="form-field">
+                      <label>Harga Modal (Rp)</label>
+                      <input
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={row.unitCost}
+                        onChange={(e) => updateRow(row.key, { unitCost: e.target.value.replace(/[^0-9]/g, "") })}
+                      />
+                    </div>
                   </div>
                 </div>
               );
@@ -255,13 +272,13 @@ export default function DeliveriesPage({ onToast }) {
   }
 
   async function saveItems(rows, deliveryDate) {
-    const payload = rows.map(({ product, qty }) => ({
+    const payload = rows.map(({ product, qty, unitCost }) => ({
       delivery_date: deliveryDate,
       provider_id: product.provider_id,
       supplier_product_id: product.id,
       product_name: product.name,
       qty,
-      unit_cost: product.net_price || 0,
+      unit_cost: unitCost,
       due_date: addDays(deliveryDate, product.due_days || 1),
     }));
     const { error } = await supabase
