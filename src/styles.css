@@ -352,7 +352,13 @@ button {
 /* --- Summary page --- */
 
 .date-input {
+  display: block;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 11px 12px;
@@ -472,6 +478,7 @@ button {
 
 .form-row-split .form-field {
   flex: 1;
+  min-width: 0;
 }
 
 .combo-field {
