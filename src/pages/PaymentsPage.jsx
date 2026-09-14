@@ -287,6 +287,23 @@ export default function PaymentsPage({ onToast }) {
     load();
   }
 
+  async function deleteUnpaidItem(id) {
+    const { error } = await supabase.from("delivery_items").delete().eq("id", id);
+    if (error) {
+      console.error(error);
+      onToast("Gagal menghapus");
+      return;
+    }
+    setAdjustments((s) => {
+      const next = { ...s };
+      delete next[id];
+      return next;
+    });
+    setAdjustingItem(null);
+    onToast("Barang dihapus dari daftar");
+    load();
+  }
+
   if (loading) return <div className="empty-state">Memuat…</div>;
 
   const groups = groupByProvider(unpaidItems);
@@ -388,7 +405,20 @@ export default function PaymentsPage({ onToast }) {
                             : `${it.qty} × ${formatRupiah(it.unit_cost)}`}
                         </div>
                       </div>
-                      <div style={{ fontWeight: 700 }}>{formatRupiah(settledAmount(it, adj))}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ fontWeight: 700 }}>{formatRupiah(settledAmount(it, adj))}</div>
+                        <button
+                          type="button"
+                          className="delivery-row-remove"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteUnpaidItem(it.id);
+                          }}
+                          aria-label="Hapus barang"
+                        >
+                          ✕
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -488,6 +518,9 @@ export default function PaymentsPage({ onToast }) {
                     : `Normal: ${normalQty} · Diskon: ${discountQty} · Rusak: ${wasteQty} (dari ${adjustingItem.qty} diterima)`}
                 </div>
                 <div className="sheet-actions">
+                  <button className="btn-danger" onClick={() => deleteUnpaidItem(adjustingItem.id)}>
+                    Hapus
+                  </button>
                   <button className="btn-secondary" onClick={() => setAdjustingItem(null)}>
                     Batal
                   </button>

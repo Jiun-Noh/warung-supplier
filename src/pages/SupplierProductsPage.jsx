@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient.js";
 import { formatRupiah } from "../utils.js";
+import ComboSearch from "../ComboSearch.jsx";
 
 const emptyForm = {
   provider_id: "",
@@ -43,13 +44,17 @@ export default function SupplierProductsPage({ onToast }) {
   }
 
   async function addProduct() {
+    if (!form.provider_id) {
+      onToast("Pilih provider dulu");
+      return;
+    }
     if (!form.name.trim()) {
       onToast("Isi nama barang dulu");
       return;
     }
     setSaving(true);
     const { error } = await supabase.from("supplier_products").insert({
-      provider_id: form.provider_id || null,
+      provider_id: form.provider_id,
       name: form.name.trim(),
       category: form.category.trim() || null,
       net_price: form.net_price === "" ? null : Number(form.net_price),
@@ -70,6 +75,10 @@ export default function SupplierProductsPage({ onToast }) {
 
   async function saveEdit() {
     if (!editing) return;
+    if (!editing.provider_id) {
+      onToast("Pilih provider dulu");
+      return;
+    }
     if (!editing.name.trim()) {
       onToast("Nama barang tidak boleh kosong");
       return;
@@ -78,7 +87,7 @@ export default function SupplierProductsPage({ onToast }) {
     const { error } = await supabase
       .from("supplier_products")
       .update({
-        provider_id: editing.provider_id || null,
+        provider_id: editing.provider_id,
         name: editing.name.trim(),
         category: editing.category?.trim() || null,
         net_price: editing.net_price === "" ? null : Number(editing.net_price),
@@ -190,20 +199,16 @@ export default function SupplierProductsPage({ onToast }) {
         <div className="sheet-backdrop" onClick={() => setShowAdd(false)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <h2>Tambah Barang Baru</h2>
-            <div className="form-field">
-              <label>Provider</label>
-              <select
-                value={form.provider_id}
-                onChange={(e) => setForm((f) => ({ ...f, provider_id: e.target.value }))}
-              >
-                <option value="">Tanpa provider</option>
-                {providers.map((prov) => (
-                  <option key={prov.id} value={prov.id}>
-                    {prov.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <ComboSearch
+              label="Provider"
+              placeholder="Cari provider…"
+              options={providers}
+              getLabel={(p) => p.name}
+              selected={providers.find((p) => p.id === form.provider_id) || null}
+              onSelect={(p) => setForm((f) => ({ ...f, provider_id: p.id }))}
+              onClear={() => setForm((f) => ({ ...f, provider_id: "" }))}
+              emptyLabel="Provider tidak ditemukan"
+            />
             <div className="form-field">
               <label>Nama Barang</label>
               <input
@@ -271,20 +276,16 @@ export default function SupplierProductsPage({ onToast }) {
         <div className="sheet-backdrop" onClick={() => setEditing(null)}>
           <div className="sheet" onClick={(e) => e.stopPropagation()}>
             <h2>Edit Barang</h2>
-            <div className="form-field">
-              <label>Provider</label>
-              <select
-                value={editing.provider_id}
-                onChange={(e) => setEditing((f) => ({ ...f, provider_id: e.target.value }))}
-              >
-                <option value="">Tanpa provider</option>
-                {providers.map((prov) => (
-                  <option key={prov.id} value={prov.id}>
-                    {prov.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <ComboSearch
+              label="Provider"
+              placeholder="Cari provider…"
+              options={providers}
+              getLabel={(p) => p.name}
+              selected={providers.find((p) => p.id === editing.provider_id) || null}
+              onSelect={(p) => setEditing((f) => ({ ...f, provider_id: p.id }))}
+              onClear={() => setEditing((f) => ({ ...f, provider_id: "" }))}
+              emptyLabel="Provider tidak ditemukan"
+            />
             <div className="form-field">
               <label>Nama Barang</label>
               <input
