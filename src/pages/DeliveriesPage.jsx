@@ -32,6 +32,7 @@ function ComboSearch({
   options,
   getLabel,
   getSubLabel,
+  getSearchText,
   selected,
   onSelect,
   onClear,
@@ -62,7 +63,9 @@ function ComboSearch({
 
   const filtered = (
     query.trim()
-      ? options.filter((o) => getLabel(o).toLowerCase().includes(query.trim().toLowerCase()))
+      ? options.filter((o) =>
+          (getSearchText ? getSearchText(o) : getLabel(o)).toLowerCase().includes(query.trim().toLowerCase())
+        )
       : options
   ).slice(0, 8);
 
@@ -139,6 +142,13 @@ function AddDeliverySheet({
     ? products.filter((p) => p.provider_id === provider.id && p.active)
     : [];
 
+  const productNamesByProvider = new Map();
+  for (const p of products) {
+    if (!p.provider_id) continue;
+    if (!productNamesByProvider.has(p.provider_id)) productNamesByProvider.set(p.provider_id, []);
+    productNamesByProvider.get(p.provider_id).push(p.name);
+  }
+
   function updateRow(key, patch) {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
@@ -180,9 +190,10 @@ function AddDeliverySheet({
 
         <ComboSearch
           label="Provider"
-          placeholder="Cari provider…"
+          placeholder="Cari provider atau nama barang…"
           options={providerOptions}
           getLabel={(p) => p.name}
+          getSearchText={(p) => [p.name, ...(productNamesByProvider.get(p.id) || [])].join(" ")}
           selected={provider}
           locked={isEditingExisting}
           onSelect={(p) => {
@@ -292,6 +303,7 @@ export default function DeliveriesPage({ onToast }) {
   const [addProvider, setAddProvider] = useState(null);
   const [addInitialItems, setAddInitialItems] = useState([]);
   const [editing, setEditing] = useState(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     loadCatalog();
@@ -415,6 +427,9 @@ export default function DeliveriesPage({ onToast }) {
   }
 
   const grouped = groupByProvider(dayItems);
+  const filteredGrouped = search.trim()
+    ? grouped.filter((g) => g.providerName.toLowerCase().includes(search.trim().toLowerCase()))
+    : grouped;
   const grandTotal = dayItems.reduce((sum, it) => sum + it.qty * (it.unit_cost || 0), 0);
   const excludedProviderIds = new Set(dayItems.map((it) => it.provider_id).filter(Boolean));
 
@@ -432,13 +447,25 @@ export default function DeliveriesPage({ onToast }) {
         + Catat Penerimaan Baru
       </button>
 
+      {dayItems.length > 0 && (
+        <input
+          type="text"
+          className="search-input"
+          placeholder="Cari provider…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      )}
+
       {loading ? (
         <div className="empty-state">Memuat…</div>
       ) : dayItems.length === 0 ? (
         <div className="empty-state">Belum ada barang yang dicatat untuk tanggal ini.</div>
+      ) : filteredGrouped.length === 0 ? (
+        <div className="empty-state">Tidak ada provider yang cocok dengan "{search}"</div>
       ) : (
         <>
-          {grouped.map((g) =>
+          {filteredGrouped.map((g) =>
             g.providerId ? (
               <div
                 className="list-row"

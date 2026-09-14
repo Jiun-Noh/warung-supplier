@@ -18,11 +18,11 @@ function isUnlocked() {
 }
 
 const TABS = [
+  { key: "deliveries", label: "Terima", icon: "📥" },
+  { key: "payments", label: "Bayar", icon: "💵" },
   { key: "providers", label: "Provider", icon: "🚚" },
   { key: "products", label: "Barang", icon: "📦" },
-  { key: "deliveries", label: "Terima", icon: "📥" },
   { key: "dashboard", label: "Dashboard", icon: "⏰" },
-  { key: "payments", label: "Bayar", icon: "💵" },
 ];
 
 const TITLES = {
@@ -34,7 +34,7 @@ const TITLES = {
 };
 
 export default function App() {
-  const [tab, setTab] = useState("providers");
+  const [tab, setTab] = useState("deliveries");
   const [toast, setToast] = useState(null);
   const [unlocked, setUnlocked] = useState(isUnlocked);
 

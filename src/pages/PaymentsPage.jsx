@@ -67,7 +67,7 @@ function groupByProvider(items) {
   return Object.values(map).sort((a, b) => b.total - a.total);
 }
 
-function Receipt({ payment, items, onClose }) {
+function Receipt({ payment, items, onClose, onDelete }) {
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet receipt-sheet" onClick={(e) => e.stopPropagation()}>
@@ -125,12 +125,16 @@ function Receipt({ payment, items, onClose }) {
           </div>
         </div>
         <div className="sheet-actions no-print">
+          <button className="btn-danger" onClick={() => onDelete(payment)}>
+            Hapus
+          </button>
           <button className="btn-secondary" onClick={onClose}>
             Tutup
           </button>
           <a
             className="btn-primary"
             href={bluetoothPrintUrl(payment.id)}
+            onClick={onClose}
             style={{ display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
           >
             Cetak
@@ -150,6 +154,7 @@ export default function PaymentsPage({ onToast }) {
   const [receipt, setReceipt] = useState(null); // { payment, items }
   const [adjustments, setAdjustments] = useState({}); // itemId -> { discountQty, discountPrice, wasteQty }
   const [adjustingItem, setAdjustingItem] = useState(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     load();
@@ -259,20 +264,62 @@ export default function PaymentsPage({ onToast }) {
     setReceipt({ payment, items: data || [] });
   }
 
+  async function deletePayment(payment) {
+    const { error: resetError } = await supabase
+      .from("delivery_items")
+      .update({ paid: false, payment_id: null, discount_qty: 0, discount_price: null, waste_qty: 0 })
+      .eq("payment_id", payment.id);
+    if (resetError) {
+      console.error(resetError);
+      onToast("Gagal membatalkan pembayaran");
+      return;
+    }
+
+    const { error: deleteError } = await supabase.from("payments").delete().eq("id", payment.id);
+    if (deleteError) {
+      console.error(deleteError);
+      onToast("Gagal menghapus pembayaran");
+      return;
+    }
+
+    onToast("Pembayaran dibatalkan, barang kembali ke daftar belum dibayar");
+    setReceipt(null);
+    load();
+  }
+
   if (loading) return <div className="empty-state">Memuat…</div>;
 
   const groups = groupByProvider(unpaidItems);
   const selectedGroup = groups.find((g) => g.providerId === selectedProviderId);
+  const filteredGroups = search.trim()
+    ? groups.filter((g) => g.providerName.toLowerCase().includes(search.trim().toLowerCase()))
+    : groups;
+  const filteredPayments = search.trim()
+    ? payments.filter((p) => p.provider_name.toLowerCase().includes(search.trim().toLowerCase()))
+    : payments;
 
   return (
     <div>
+      {(groups.length > 0 || payments.length > 0) && (
+        <input
+          type="text"
+          className="search-input"
+          placeholder="Cari provider…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      )}
+
       <div className="section-title">Provider dengan tagihan belum dibayar</div>
 
       {groups.length === 0 && (
         <div className="empty-state">Tidak ada tagihan yang belum dibayar. Lunas semua!</div>
       )}
+      {groups.length > 0 && filteredGroups.length === 0 && (
+        <div className="empty-state">Tidak ada provider yang cocok dengan "{search}"</div>
+      )}
 
-      {groups.map((g) => (
+      {filteredGroups.map((g) => (
         <div
           className="list-row"
           key={g.providerId || "none"}
@@ -293,7 +340,10 @@ export default function PaymentsPage({ onToast }) {
           <div className="section-title" style={{ marginTop: 20 }}>
             Riwayat Pembayaran
           </div>
-          {payments.map((p) => (
+          {filteredPayments.length === 0 && (
+            <div className="empty-state">Tidak ada riwayat yang cocok dengan "{search}"</div>
+          )}
+          {filteredPayments.map((p) => (
             <div className="list-row" key={p.id} onClick={() => reprintPayment(p)}>
               <div>
                 <div className="name">{p.provider_name}</div>
@@ -469,6 +519,7 @@ export default function PaymentsPage({ onToast }) {
           payment={receipt.payment}
           items={receipt.items}
           onClose={() => setReceipt(null)}
+          onDelete={deletePayment}
         />
       )}
     </div>
