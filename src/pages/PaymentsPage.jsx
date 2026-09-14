@@ -8,6 +8,46 @@ const CYCLE_LABEL = {
   bulanan: "Bulanan",
 };
 
+const SHOP_NAME = "Warung Ceria Aneka Kue";
+const SHOP_ADDRESS_LINE1 = "Jl. Merpati No. 44B";
+const SHOP_ADDRESS_LINE2 = "Denpasar Barat";
+const SHOP_WHATSAPP = "085238848579";
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+function bluetoothPrintUrl(paymentId) {
+  const responseUrl =
+    `${SUPABASE_URL}/rest/v1/rpc/get_receipt_print_json` +
+    `?p_payment_id=${paymentId}&apikey=${SUPABASE_ANON_KEY}`;
+  return `my.bluetoothprint.scheme://${responseUrl}`;
+}
+
+function defaultAdjustment(item) {
+  return {
+    discountQty: "",
+    discountPrice: String(item.unit_cost),
+    wasteQty: "",
+  };
+}
+
+function sanitizeQtyInput(raw) {
+  return raw.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "");
+}
+
+function normalQtyOf(item, adj) {
+  const discountQty = Number(adj.discountQty) || 0;
+  const wasteQty = Number(adj.wasteQty) || 0;
+  return item.qty - discountQty - wasteQty;
+}
+
+function settledAmount(item, adj) {
+  const normalQty = Math.max(0, normalQtyOf(item, adj));
+  const discountQty = Number(adj.discountQty) || 0;
+  const discountPrice = Number(adj.discountPrice) || 0;
+  return normalQty * item.unit_cost + discountQty * discountPrice;
+}
+
 function groupByProvider(items) {
   const map = {};
   for (const item of items) {
@@ -33,19 +73,51 @@ function Receipt({ payment, items, onClose }) {
       <div className="sheet receipt-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="receipt-print">
           <div className="receipt-header">
-            <div className="receipt-title">Tanda Terima Pembayaran</div>
+            <div className="receipt-title">{SHOP_NAME}</div>
+            <div>{SHOP_ADDRESS_LINE1}</div>
+            <div>{SHOP_ADDRESS_LINE2}</div>
+            <div>WA {SHOP_WHATSAPP}</div>
+            <div style={{ marginTop: 6 }}>Tanda Terima Pembayaran</div>
             <div>{payment.provider_name}</div>
             <div>{new Date(payment.paid_at).toLocaleString("id-ID")}</div>
           </div>
           <div className="receipt-items">
-            {items.map((it) => (
-              <div className="receipt-item" key={it.id}>
-                <div>
-                  {it.product_name} × {it.qty}
+            {items.map((it) => {
+              const discountQty = it.discount_qty || 0;
+              const wasteQty = it.waste_qty || 0;
+              const normalQty = it.qty - discountQty - wasteQty;
+              const rowTotal = normalQty * it.unit_cost + discountQty * (it.discount_price || 0);
+              const hasAdjustment = discountQty > 0 || wasteQty > 0;
+              return (
+                <div className="receipt-item" key={it.id}>
+                  <div className="receipt-item-row">
+                    <div>{it.product_name}</div>
+                    <div>{formatRupiah(rowTotal)}</div>
+                  </div>
+                  {hasAdjustment ? (
+                    <>
+                      {normalQty > 0 && (
+                        <div className="receipt-item-sub">
+                          {normalQty} × {formatRupiah(it.unit_cost)}
+                        </div>
+                      )}
+                      {discountQty > 0 && (
+                        <div className="receipt-item-sub">
+                          {discountQty} diskon × {formatRupiah(it.discount_price)}
+                        </div>
+                      )}
+                      {wasteQty > 0 && (
+                        <div className="receipt-item-sub">{wasteQty} rusak/dibuang</div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="receipt-item-sub">
+                      {it.qty} × {formatRupiah(it.unit_cost)}
+                    </div>
+                  )}
                 </div>
-                <div>{formatRupiah(it.qty * it.unit_cost)}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="receipt-total">
             <div>Total</div>
@@ -56,9 +128,13 @@ function Receipt({ payment, items, onClose }) {
           <button className="btn-secondary" onClick={onClose}>
             Tutup
           </button>
-          <button className="btn-primary" onClick={() => window.print()}>
+          <a
+            className="btn-primary"
+            href={bluetoothPrintUrl(payment.id)}
+            style={{ display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
+          >
             Cetak
-          </button>
+          </a>
         </div>
       </div>
     </div>
@@ -72,6 +148,8 @@ export default function PaymentsPage({ onToast }) {
   const [selectedProviderId, setSelectedProviderId] = useState(undefined);
   const [paying, setPaying] = useState(false);
   const [receipt, setReceipt] = useState(null); // { payment, items }
+  const [adjustments, setAdjustments] = useState({}); // itemId -> { discountQty, discountPrice, wasteQty }
+  const [adjustingItem, setAdjustingItem] = useState(null);
 
   useEffect(() => {
     load();
@@ -100,12 +178,25 @@ export default function PaymentsPage({ onToast }) {
 
   async function payProvider(group) {
     setPaying(true);
+
+    const rows = group.items.map((it) => {
+      const adj = adjustments[it.id] || defaultAdjustment(it);
+      return {
+        item: it,
+        normalQty: Math.max(0, normalQtyOf(it, adj)),
+        discountQty: Number(adj.discountQty) || 0,
+        discountPrice: Number(adj.discountPrice) || 0,
+        wasteQty: Number(adj.wasteQty) || 0,
+      };
+    });
+    const amount = rows.reduce((sum, r) => sum + r.normalQty * r.item.unit_cost + r.discountQty * r.discountPrice, 0);
+
     const { data: payment, error: paymentError } = await supabase
       .from("payments")
       .insert({
         provider_id: group.providerId,
         provider_name: group.providerName,
-        amount: group.total,
+        amount,
       })
       .select()
       .single();
@@ -117,13 +208,23 @@ export default function PaymentsPage({ onToast }) {
       return;
     }
 
-    const itemIds = group.items.map((it) => it.id);
-    const { error: updateError } = await supabase
-      .from("delivery_items")
-      .update({ paid: true, payment_id: payment.id })
-      .in("id", itemIds);
+    const updateResults = await Promise.all(
+      rows.map((r) =>
+        supabase
+          .from("delivery_items")
+          .update({
+            paid: true,
+            payment_id: payment.id,
+            discount_qty: r.discountQty,
+            discount_price: r.discountQty > 0 ? r.discountPrice : null,
+            waste_qty: r.wasteQty,
+          })
+          .eq("id", r.item.id)
+      )
+    );
     setPaying(false);
 
+    const updateError = updateResults.find((res) => res.error)?.error;
     if (updateError) {
       console.error(updateError);
       onToast("Pembayaran dibuat tapi gagal menandai barang");
@@ -132,7 +233,16 @@ export default function PaymentsPage({ onToast }) {
 
     onToast(`Pembayaran ke ${group.providerName} tersimpan`);
     setSelectedProviderId(undefined);
-    setReceipt({ payment, items: group.items });
+    setReceipt({
+      payment,
+      items: rows.map((r) => ({
+        ...r.item,
+        discount_qty: r.discountQty,
+        discount_price: r.discountQty > 0 ? r.discountPrice : null,
+        waste_qty: r.wasteQty,
+      })),
+    });
+    setAdjustments({});
     load();
   }
 
@@ -195,42 +305,164 @@ export default function PaymentsPage({ onToast }) {
         </>
       )}
 
-      {selectedGroup && (
-        <div className="sheet-backdrop" onClick={() => setSelectedProviderId(undefined)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <h2>{selectedGroup.providerName}</h2>
-            {selectedGroup.items.map((it) => (
-              <div className="list-row" key={it.id}>
-                <div>
-                  <div className="name">{it.product_name}</div>
-                  <div className="meta">
-                    {it.qty} × {formatRupiah(it.unit_cost)}
+      {selectedGroup &&
+        (() => {
+          const adjustedTotal = selectedGroup.items.reduce(
+            (sum, it) => sum + settledAmount(it, adjustments[it.id] || defaultAdjustment(it)),
+            0
+          );
+          return (
+            <div
+              className="sheet-backdrop"
+              onClick={() => {
+                setSelectedProviderId(undefined);
+                setAdjustments({});
+              }}
+            >
+              <div className="sheet" onClick={(e) => e.stopPropagation()}>
+                <h2>{selectedGroup.providerName}</h2>
+                {selectedGroup.items.map((it) => {
+                  const adj = adjustments[it.id] || defaultAdjustment(it);
+                  const hasAdjustment = Number(adj.discountQty) > 0 || Number(adj.wasteQty) > 0;
+                  return (
+                    <div
+                      className="list-row"
+                      key={it.id}
+                      onClick={() => setAdjustingItem({ ...it, ...adj })}
+                    >
+                      <div>
+                        <div className="name">{it.product_name}</div>
+                        <div className="meta">
+                          {hasAdjustment
+                            ? `${normalQtyOf(it, adj)} normal · ${adj.discountQty || 0} diskon · ${adj.wasteQty || 0} rusak`
+                            : `${it.qty} × ${formatRupiah(it.unit_cost)}`}
+                        </div>
+                      </div>
+                      <div style={{ fontWeight: 700 }}>{formatRupiah(settledAmount(it, adj))}</div>
+                    </div>
+                  );
+                })}
+                <div className="list-row" style={{ background: "transparent", border: "none" }}>
+                  <div className="name">Total</div>
+                  <div style={{ fontWeight: 800, fontSize: 16 }}>{formatRupiah(adjustedTotal)}</div>
+                </div>
+                <div className="sheet-actions">
+                  <button
+                    className="btn-secondary"
+                    onClick={() => {
+                      setSelectedProviderId(undefined);
+                      setAdjustments({});
+                    }}
+                  >
+                    Batal
+                  </button>
+                  <button
+                    className="btn-primary"
+                    disabled={paying}
+                    onClick={() => payProvider(selectedGroup)}
+                  >
+                    {paying ? "Menyimpan…" : `Bayar ${formatRupiah(adjustedTotal)}`}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+      {adjustingItem &&
+        (() => {
+          const discountQty = Number(adjustingItem.discountQty) || 0;
+          const wasteQty = Number(adjustingItem.wasteQty) || 0;
+          const normalQty = adjustingItem.qty - discountQty - wasteQty;
+          const overLimit = normalQty < 0;
+          return (
+            <div className="sheet-backdrop" onClick={() => setAdjustingItem(null)}>
+              <div className="sheet" onClick={(e) => e.stopPropagation()}>
+                <h2>{adjustingItem.product_name}</h2>
+                <div className="meta" style={{ marginBottom: 10 }}>
+                  Diterima: {adjustingItem.qty}
+                </div>
+                <div className="form-row-split">
+                  <div className="form-field">
+                    <label>Jumlah Diskon</label>
+                    <input
+                      inputMode="numeric"
+                      placeholder="0"
+                      value={adjustingItem.discountQty}
+                      onChange={(e) =>
+                        setAdjustingItem((f) => ({
+                          ...f,
+                          discountQty: sanitizeQtyInput(e.target.value),
+                        }))
+                      }
+                    />
+                  </div>
+                  <div className="form-field">
+                    <label>Harga Diskon (Rp)</label>
+                    <input
+                      inputMode="numeric"
+                      value={adjustingItem.discountPrice}
+                      onChange={(e) =>
+                        setAdjustingItem((f) => ({
+                          ...f,
+                          discountPrice: sanitizeQtyInput(e.target.value),
+                        }))
+                      }
+                    />
                   </div>
                 </div>
-                <div style={{ fontWeight: 700 }}>{formatRupiah(it.qty * it.unit_cost)}</div>
-              </div>
-            ))}
-            <div className="list-row" style={{ background: "transparent", border: "none" }}>
-              <div className="name">Total</div>
-              <div style={{ fontWeight: 800, fontSize: 16 }}>
-                {formatRupiah(selectedGroup.total)}
+                <div className="form-field">
+                  <label>Jumlah Rusak / Dibuang</label>
+                  <input
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={adjustingItem.wasteQty}
+                    onChange={(e) =>
+                      setAdjustingItem((f) => ({
+                        ...f,
+                        wasteQty: sanitizeQtyInput(e.target.value),
+                      }))
+                    }
+                  />
+                </div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: overLimit ? "var(--chili-600)" : "var(--ink-500)",
+                    marginBottom: 10,
+                  }}
+                >
+                  {overLimit
+                    ? `Diskon + rusak (${discountQty + wasteQty}) melebihi jumlah diterima (${adjustingItem.qty})`
+                    : `Normal: ${normalQty} · Diskon: ${discountQty} · Rusak: ${wasteQty} (dari ${adjustingItem.qty} diterima)`}
+                </div>
+                <div className="sheet-actions">
+                  <button className="btn-secondary" onClick={() => setAdjustingItem(null)}>
+                    Batal
+                  </button>
+                  <button
+                    className="btn-primary"
+                    disabled={overLimit}
+                    onClick={() => {
+                      setAdjustments((s) => ({
+                        ...s,
+                        [adjustingItem.id]: {
+                          discountQty: adjustingItem.discountQty,
+                          discountPrice: adjustingItem.discountPrice,
+                          wasteQty: adjustingItem.wasteQty,
+                        },
+                      }));
+                      setAdjustingItem(null);
+                    }}
+                  >
+                    Simpan
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="sheet-actions">
-              <button className="btn-secondary" onClick={() => setSelectedProviderId(undefined)}>
-                Batal
-              </button>
-              <button
-                className="btn-primary"
-                disabled={paying}
-                onClick={() => payProvider(selectedGroup)}
-              >
-                {paying ? "Menyimpan…" : `Bayar ${formatRupiah(selectedGroup.total)}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          );
+        })()}
 
       {receipt && (
         <Receipt

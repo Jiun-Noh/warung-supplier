@@ -78,3 +78,144 @@ end $$;
 
 alter table delivery_items disable row level security;
 alter table payments disable row level security;
+
+-- 정산 시 할인 판매 / 폐기 수량 반영: 정상 수량은 원가, 할인 수량은 할인가, 폐기 수량은 대금 없음.
+-- 원래 납품 수량(qty)은 이력 보존을 위해 그대로 두고, 정산 시점에만 이 컬럼들을 채웁니다.
+alter table delivery_items add column if not exists discount_qty integer not null default 0;
+alter table delivery_items add column if not exists discount_price integer;
+alter table delivery_items add column if not exists waste_qty integer not null default 0;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'delivery_items_settlement_check'
+  ) then
+    alter table delivery_items
+      add constraint delivery_items_settlement_check
+      check (discount_qty >= 0 and waste_qty >= 0 and discount_qty + waste_qty <= qty);
+  end if;
+end $$;
+
+-- 감열 프린터(RawBT / Bluetooth Print 앱의 "Browser/Website Print" 기능)용 영수증 JSON.
+-- 이 함수는 결제 1건을 받아 앱이 이해하는 인쇄 항목 배열(JSON)을 돌려줍니다.
+-- PostgREST를 통해 GET으로 호출됩니다: /rest/v1/rpc/get_receipt_print_json?p_payment_id=...&apikey=...
+create or replace function get_receipt_print_json(p_payment_id uuid)
+returns json
+language plpgsql
+stable
+as $$
+declare
+  v_line_width constant int := 32;
+  v_payment payments%rowtype;
+  v_item record;
+  v_entries json[] := '{}';
+  v_price_text text;
+  v_name_text text;
+  v_result json;
+  v_normal_qty int;
+  v_row_total int;
+begin
+  select * into v_payment from payments where id = p_payment_id;
+
+  if not found then
+    -- Bluetooth Print 앱은 최상위 응답이 배열이 아니라 "0","1",... 키를 가진
+    -- 객체여야 한다 (PHP json_encode(..., JSON_FORCE_OBJECT)와 동일한 형태).
+    return json_build_object(
+      '0', json_build_object('type', 0, 'content', 'Pembayaran tidak ditemukan', 'bold', 1, 'align', 1, 'format', 0)
+    );
+  end if;
+
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0, 'content', 'Warung Ceria Aneka Kue', 'bold', 1, 'align', 1, 'format', 1
+  ));
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0, 'content', 'Jl. Merpati No. 44', 'bold', 0, 'align', 1, 'format', 0
+  ));
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0, 'content', 'Denpasar Barat', 'bold', 0, 'align', 1, 'format', 0
+  ));
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0, 'content', 'WA 085238848579', 'bold', 0, 'align', 1, 'format', 0
+  ));
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0, 'content', '--------------------------------', 'bold', 0, 'align', 0, 'format', 0
+  ));
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0, 'content', 'Tanda Terima Pembayaran', 'bold', 1, 'align', 1, 'format', 0
+  ));
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0, 'content', v_payment.provider_name, 'bold', 0, 'align', 1, 'format', 0
+  ));
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0,
+    'content', to_char(v_payment.paid_at at time zone 'Asia/Jakarta', 'DD/MM/YYYY HH24:MI'),
+    'bold', 0, 'align', 1, 'format', 0
+  ));
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0, 'content', '--------------------------------', 'bold', 0, 'align', 0, 'format', 0
+  ));
+
+  for v_item in
+    select product_name, qty, unit_cost, discount_qty, discount_price, waste_qty
+    from delivery_items
+    where payment_id = p_payment_id
+    order by product_name
+  loop
+    v_normal_qty := v_item.qty - coalesce(v_item.discount_qty, 0) - coalesce(v_item.waste_qty, 0);
+    v_row_total := v_normal_qty * v_item.unit_cost + coalesce(v_item.discount_qty, 0) * coalesce(v_item.discount_price, 0);
+    v_price_text := 'Rp' || replace(trim(to_char(v_row_total, '999,999,999')), ',', '.');
+    v_name_text := left(v_item.product_name, greatest(1, v_line_width - length(v_price_text) - 1));
+
+    -- 1줄: 상품명 왼쪽, 정산 금액 오른쪽 (줄 폭에 맞춰 공백으로 정렬)
+    v_entries := array_append(v_entries, json_build_object(
+      'type', 0,
+      'content', v_name_text ||
+        repeat(' ', greatest(1, v_line_width - length(v_name_text) - length(v_price_text))) ||
+        v_price_text,
+      'bold', 0, 'align', 0, 'format', 0
+    ));
+
+    if v_normal_qty > 0 then
+      v_entries := array_append(v_entries, json_build_object(
+        'type', 0,
+        'content', '  ' || v_normal_qty || ' x Rp' ||
+          replace(trim(to_char(v_item.unit_cost, '999,999,999')), ',', '.'),
+        'bold', 0, 'align', 0, 'format', 0
+      ));
+    end if;
+    if coalesce(v_item.discount_qty, 0) > 0 then
+      v_entries := array_append(v_entries, json_build_object(
+        'type', 0,
+        'content', '  ' || v_item.discount_qty || ' diskon x Rp' ||
+          replace(trim(to_char(coalesce(v_item.discount_price, 0), '999,999,999')), ',', '.'),
+        'bold', 0, 'align', 0, 'format', 0
+      ));
+    end if;
+    if coalesce(v_item.waste_qty, 0) > 0 then
+      v_entries := array_append(v_entries, json_build_object(
+        'type', 0,
+        'content', '  ' || v_item.waste_qty || ' rusak/dibuang',
+        'bold', 0, 'align', 0, 'format', 0
+      ));
+    end if;
+  end loop;
+
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0, 'content', '--------------------------------', 'bold', 0, 'align', 0, 'format', 0
+  ));
+  v_entries := array_append(v_entries, json_build_object(
+    'type', 0,
+    'content', 'Total: Rp' || replace(trim(to_char(v_payment.amount, '999,999,999')), ',', '.'),
+    'bold', 1, 'align', 2, 'format', 0
+  ));
+
+  -- 배열을 "0","1","2",... 키를 가진 객체로 변환 (Bluetooth Print 앱이 요구하는 형태).
+  select json_object_agg((ord - 1)::text, entry order by ord)
+  into v_result
+  from unnest(v_entries) with ordinality as t(entry, ord);
+
+  return v_result;
+end;
+$$;
+
+grant execute on function get_receipt_print_json(uuid) to anon;

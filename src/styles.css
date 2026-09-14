@@ -712,10 +712,18 @@ button {
 }
 
 .receipt-item {
+  padding: 3px 0;
+}
+
+.receipt-item-row {
   display: flex;
   justify-content: space-between;
   font-size: 13px;
-  padding: 3px 0;
+  font-weight: 700;
+}
+
+.receipt-item-sub {
+  font-size: 13px;
 }
 
 .receipt-total {
