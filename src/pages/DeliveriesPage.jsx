@@ -50,6 +50,7 @@ function AddDeliverySheet({
   excludedProviderIds,
   onSave,
   onDeleteExisting,
+  onFetchLastDelivery,
   onClose,
   onToast,
 }) {
@@ -59,6 +60,7 @@ function AddDeliverySheet({
     isEditingExisting ? initialItems.map((it) => rowFromExistingItem(it, products)) : [emptyRow()]
   );
   const [saving, setSaving] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   const providerOptions = providers.filter((p) => !excludedProviderIds.has(p.id));
   const providerProducts = provider
@@ -87,6 +89,39 @@ function AddDeliverySheet({
       if (!ok) return;
     }
     setRows((rs) => (rs.length === 1 ? [emptyRow()] : rs.filter((r) => r.key !== key)));
+  }
+
+  async function copyLastDelivery() {
+    if (!provider) return;
+    setCopying(true);
+    const items = await onFetchLastDelivery(provider.id);
+    setCopying(false);
+
+    if (items.length === 0) {
+      onToast("Belum ada riwayat pengiriman sebelumnya untuk provider ini");
+      return;
+    }
+
+    const newRows = items
+      .map((it) => {
+        const product = products.find((p) => p.id === it.supplier_product_id && p.active);
+        if (!product) return null;
+        return {
+          key: Math.random().toString(36).slice(2),
+          product,
+          qty: String(it.qty),
+          unitCost: product.net_price != null ? String(product.net_price) : "",
+        };
+      })
+      .filter(Boolean);
+
+    if (newRows.length === 0) {
+      onToast("Barang pada riwayat sebelumnya sudah tidak aktif");
+      return;
+    }
+
+    setRows(newRows);
+    onToast(`${newRows.length} barang disalin dari pengiriman sebelumnya`);
   }
 
   async function handleSave() {
@@ -133,6 +168,18 @@ function AddDeliverySheet({
               : "Provider tidak ditemukan"
           }
         />
+
+        {provider && !isEditingExisting && (
+          <button
+            type="button"
+            className="btn-secondary"
+            style={{ width: "100%", marginBottom: 14 }}
+            disabled={copying}
+            onClick={copyLastDelivery}
+          >
+            {copying ? "Menyalin…" : "↻ Salin Pengiriman Terakhir"}
+          </button>
+        )}
 
         {provider ? (
           <>
@@ -329,6 +376,24 @@ export default function DeliveriesPage({ onToast }) {
     return true;
   }
 
+  async function fetchLastDelivery(providerId) {
+    const { data, error } = await supabase
+      .from("delivery_items")
+      .select("supplier_product_id, qty, delivery_date")
+      .eq("provider_id", providerId)
+      .lt("delivery_date", date)
+      .order("delivery_date", { ascending: false })
+      .limit(50);
+    if (error) {
+      console.error(error);
+      onToast("Gagal memuat riwayat");
+      return [];
+    }
+    if (!data || data.length === 0) return [];
+    const lastDate = data[0].delivery_date;
+    return data.filter((d) => d.delivery_date === lastDate);
+  }
+
   if (providers.length === 0) {
     return (
       <div className="empty-state">
@@ -446,6 +511,7 @@ export default function DeliveriesPage({ onToast }) {
           excludedProviderIds={excludedProviderIds}
           onSave={saveItems}
           onDeleteExisting={deleteDeliveryItem}
+          onFetchLastDelivery={fetchLastDelivery}
           onToast={onToast}
           onClose={() => {
             setShowAdd(false);
