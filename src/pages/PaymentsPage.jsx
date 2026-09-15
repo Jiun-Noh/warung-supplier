@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient.js";
 import { formatRupiah } from "../utils.js";
+import { buildReceiptEscPos, formatJakartaDateTime, rawbtPrintUrl } from "../escpos.js";
 
 const CYCLE_LABEL = {
   harian: "Harian",
@@ -9,18 +10,23 @@ const CYCLE_LABEL = {
 };
 
 const SHOP_NAME = "Warung Ceria Aneka Kue";
+const SHOP_NAME_LINES = ["Warung Ceria", "Aneka Kue"];
 const SHOP_ADDRESS_LINE1 = "Jl. Merpati No. 44B";
 const SHOP_ADDRESS_LINE2 = "Denpasar Barat";
 const SHOP_WHATSAPP = "085238848579";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-function bluetoothPrintUrl(paymentId) {
-  const responseUrl =
-    `${SUPABASE_URL}/rest/v1/rpc/get_receipt_print_json` +
-    `?p_payment_id=${paymentId}&apikey=${SUPABASE_ANON_KEY}`;
-  return `my.bluetoothprint.scheme://${responseUrl}`;
+function receiptPrintUrl(payment, items) {
+  const bytes = buildReceiptEscPos({
+    shopNameLines: SHOP_NAME_LINES,
+    addressLine1: SHOP_ADDRESS_LINE1,
+    addressLine2: SHOP_ADDRESS_LINE2,
+    whatsapp: SHOP_WHATSAPP,
+    providerName: payment.provider_name,
+    paidAt: formatJakartaDateTime(payment.paid_at),
+    items,
+    amount: payment.amount,
+  });
+  return rawbtPrintUrl(bytes);
 }
 
 function defaultAdjustment(item) {
@@ -133,7 +139,7 @@ function Receipt({ payment, items, onClose, onDelete }) {
           </button>
           <a
             className="btn-primary"
-            href={bluetoothPrintUrl(payment.id)}
+            href={receiptPrintUrl(payment, items)}
             onClick={onClose}
             style={{ display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}
           >
