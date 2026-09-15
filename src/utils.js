@@ -2,6 +2,11 @@ export function formatRupiah(n) {
   return "Rp" + Number(n || 0).toLocaleString("id-ID");
 }
 
+export function addDays(isoDate, days) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
 export function todayISODate() {
   const d = new Date();
   const y = d.getFullYear();

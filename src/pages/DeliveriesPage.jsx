@@ -1,13 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient.js";
-import { formatRupiah, todayISODate } from "../utils.js";
+import { addDays, formatRupiah, todayISODate } from "../utils.js";
 import ComboSearch from "../ComboSearch.jsx";
-
-function addDays(isoDate, days) {
-  const d = new Date(isoDate + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
 
 function groupByProvider(items) {
   const map = {};

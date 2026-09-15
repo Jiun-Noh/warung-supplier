@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient.js";
-import { formatRupiah } from "../utils.js";
+import { addDays, formatRupiah, todayISODate } from "../utils.js";
 import { buildReceiptEscPos, formatJakartaDateTime, rawbtPrintUrl } from "../escpos.js";
 
 const CYCLE_LABEL = {
@@ -29,10 +29,10 @@ function receiptPrintUrl(payment, items) {
   return rawbtPrintUrl(bytes);
 }
 
-function defaultAdjustment(item) {
+function defaultAdjustment() {
   return {
     discountQty: "",
-    discountPrice: String(item.unit_cost),
+    discountPrice: "",
     wasteQty: "",
   };
 }
@@ -152,6 +152,7 @@ function Receipt({ payment, items, onClose, onDelete }) {
 }
 
 export default function PaymentsPage({ onToast }) {
+  const [date, setDate] = useState(todayISODate());
   const [unpaidItems, setUnpaidItems] = useState([]);
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -163,28 +164,33 @@ export default function PaymentsPage({ onToast }) {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    load();
+    loadUnpaid();
   }, []);
 
-  async function load() {
+  useEffect(() => {
+    loadPayments(date);
+  }, [date]);
+
+  async function loadUnpaid() {
     setLoading(true);
-    const [{ data: unpaidData, error: unpaidErr }, { data: paymentData, error: paymentErr }] =
-      await Promise.all([
-        supabase
-          .from("delivery_items")
-          .select("*, providers(name, payment_cycle)")
-          .eq("paid", false),
-        supabase
-          .from("payments")
-          .select("*")
-          .order("paid_at", { ascending: false })
-          .limit(20),
-      ]);
-    if (unpaidErr) console.error(unpaidErr);
-    if (paymentErr) console.error(paymentErr);
-    setUnpaidItems(unpaidData || []);
-    setPayments(paymentData || []);
+    const { data, error } = await supabase
+      .from("delivery_items")
+      .select("*, providers(name, payment_cycle)")
+      .eq("paid", false);
+    if (error) console.error(error);
+    setUnpaidItems(data || []);
     setLoading(false);
+  }
+
+  async function loadPayments(forDate) {
+    const { data, error } = await supabase
+      .from("payments")
+      .select("*")
+      .gte("paid_at", `${forDate}T00:00:00+08:00`)
+      .lt("paid_at", `${addDays(forDate, 1)}T00:00:00+08:00`)
+      .order("paid_at", { ascending: false });
+    if (error) console.error(error);
+    setPayments(data || []);
   }
 
   async function payProvider(group) {
@@ -254,7 +260,10 @@ export default function PaymentsPage({ onToast }) {
       })),
     });
     setAdjustments({});
-    load();
+    const today = todayISODate();
+    setDate(today);
+    loadUnpaid();
+    loadPayments(today);
   }
 
   async function reprintPayment(payment) {
@@ -290,7 +299,8 @@ export default function PaymentsPage({ onToast }) {
 
     onToast("Pembayaran dibatalkan, barang kembali ke daftar belum dibayar");
     setReceipt(null);
-    load();
+    loadUnpaid();
+    loadPayments(date);
   }
 
   async function deleteUnpaidItem(id) {
@@ -307,7 +317,7 @@ export default function PaymentsPage({ onToast }) {
     });
     setAdjustingItem(null);
     onToast("Barang dihapus dari daftar");
-    load();
+    loadUnpaid();
   }
 
   if (loading) return <div className="empty-state">Memuat…</div>;
@@ -358,24 +368,25 @@ export default function PaymentsPage({ onToast }) {
         </div>
       ))}
 
-      {payments.length > 0 && (
-        <>
-          <div className="section-title" style={{ marginTop: 20 }}>
-            Riwayat Pembayaran
-          </div>
-          {filteredPayments.length === 0 && (
-            <div className="empty-state">Tidak ada riwayat yang cocok dengan "{search}"</div>
-          )}
-          {filteredPayments.map((p) => (
-            <div className="list-row" key={p.id} onClick={() => reprintPayment(p)}>
-              <div>
-                <div className="name">{p.provider_name}</div>
-                <div className="meta">{new Date(p.paid_at).toLocaleString("id-ID")}</div>
-              </div>
-              <div style={{ fontWeight: 700 }}>{formatRupiah(p.amount)}</div>
+      <div className="section-title" style={{ marginTop: 20 }}>
+        Riwayat Pembayaran
+      </div>
+      <input type="date" className="date-input" value={date} onChange={(e) => setDate(e.target.value)} />
+
+      {payments.length === 0 ? (
+        <div className="empty-state">Belum ada pembayaran pada tanggal ini.</div>
+      ) : filteredPayments.length === 0 ? (
+        <div className="empty-state">Tidak ada riwayat yang cocok dengan "{search}"</div>
+      ) : (
+        filteredPayments.map((p) => (
+          <div className="list-row" key={p.id} onClick={() => reprintPayment(p)}>
+            <div>
+              <div className="name">{p.provider_name}</div>
+              <div className="meta">{new Date(p.paid_at).toLocaleString("id-ID")}</div>
             </div>
-          ))}
-        </>
+            <div style={{ fontWeight: 700 }}>{formatRupiah(p.amount)}</div>
+          </div>
+        ))
       )}
 
       {selectedGroup &&
@@ -487,6 +498,7 @@ export default function PaymentsPage({ onToast }) {
                     <label>Harga Diskon (Rp)</label>
                     <input
                       inputMode="numeric"
+                      placeholder={String(adjustingItem.unit_cost)}
                       value={adjustingItem.discountPrice}
                       onChange={(e) =>
                         setAdjustingItem((f) => ({

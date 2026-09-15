@@ -40,7 +40,7 @@ function twoColumnLine(left, right) {
 
 export function formatJakartaDateTime(iso) {
   const parts = new Intl.DateTimeFormat("id-ID", {
-    timeZone: "Asia/Jakarta",
+    timeZone: "Asia/Makassar",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
