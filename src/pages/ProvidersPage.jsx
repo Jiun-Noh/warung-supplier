@@ -25,11 +25,13 @@ function PaymentCycleSelect({ value, onChange }) {
 
 export default function ProvidersPage({ onToast }) {
   const [providers, setProviders] = useState([]);
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     load();
@@ -37,12 +39,15 @@ export default function ProvidersPage({ onToast }) {
 
   async function load() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("providers")
-      .select("*")
-      .order("name", { ascending: true });
-    if (error) console.error(error);
-    setProviders(data || []);
+    const [{ data: providerData, error: providerErr }, { data: productData, error: productErr }] =
+      await Promise.all([
+        supabase.from("providers").select("*").order("name", { ascending: true }),
+        supabase.from("supplier_products").select("provider_id, name"),
+      ]);
+    if (providerErr) console.error(providerErr);
+    if (productErr) console.error(productErr);
+    setProviders(providerData || []);
+    setProducts(productData || []);
     setLoading(false);
   }
 
@@ -116,6 +121,21 @@ export default function ProvidersPage({ onToast }) {
 
   if (loading) return <div className="empty-state">Memuat…</div>;
 
+  const productNamesByProvider = new Map();
+  for (const prod of products) {
+    if (!prod.provider_id) continue;
+    if (!productNamesByProvider.has(prod.provider_id)) productNamesByProvider.set(prod.provider_id, []);
+    productNamesByProvider.get(prod.provider_id).push(prod.name);
+  }
+
+  const filteredProviders = search.trim()
+    ? providers.filter((p) => {
+        const q = search.trim().toLowerCase();
+        const searchText = [p.name, ...(productNamesByProvider.get(p.id) || [])].join(" ").toLowerCase();
+        return searchText.includes(q);
+      })
+    : providers;
+
   return (
     <div>
       <button
@@ -130,7 +150,21 @@ export default function ProvidersPage({ onToast }) {
         <div className="empty-state">Belum ada provider. Tambahkan lewat tombol di atas.</div>
       )}
 
-      {providers.map((p) => (
+      {providers.length > 0 && (
+        <input
+          type="text"
+          className="search-input"
+          placeholder="Cari provider atau nama barang…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      )}
+
+      {providers.length > 0 && filteredProviders.length === 0 && (
+        <div className="empty-state">Tidak ada provider yang cocok dengan "{search}"</div>
+      )}
+
+      {filteredProviders.map((p) => (
         <div className="list-row" key={p.id} onClick={() => setEditing({ ...p })}>
           <div>
             <div className="name">{p.name}</div>
