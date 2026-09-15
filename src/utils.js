@@ -7,6 +7,11 @@ export function addDays(isoDate, days) {
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 
+export function formatDateID(isoDate) {
+  const [y, m, d] = isoDate.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 export function todayISODate() {
   const d = new Date();
   const y = d.getFullYear();

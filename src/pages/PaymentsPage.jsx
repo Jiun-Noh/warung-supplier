@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient.js";
-import { addDays, formatRupiah, todayISODate } from "../utils.js";
-import { buildReceiptEscPos, formatJakartaDateTime, rawbtPrintUrl } from "../escpos.js";
+import { addDays, formatDateID, formatRupiah, todayISODate } from "../utils.js";
+import { buildReceiptEscPos, rawbtPrintUrl } from "../escpos.js";
 
 const CYCLE_LABEL = {
   harian: "Harian",
@@ -15,6 +15,13 @@ const SHOP_ADDRESS_LINE1 = "Jl. Merpati No. 44B";
 const SHOP_ADDRESS_LINE2 = "Denpasar Barat";
 const SHOP_WHATSAPP = "085238848579";
 
+function deliveryDateLabel(items) {
+  const dates = [...new Set(items.map((it) => it.delivery_date))].sort();
+  if (dates.length === 0) return "";
+  if (dates.length === 1) return formatDateID(dates[0]);
+  return `${formatDateID(dates[0])} - ${formatDateID(dates[dates.length - 1])}`;
+}
+
 function receiptPrintUrl(payment, items) {
   const bytes = buildReceiptEscPos({
     shopNameLines: SHOP_NAME_LINES,
@@ -22,7 +29,7 @@ function receiptPrintUrl(payment, items) {
     addressLine2: SHOP_ADDRESS_LINE2,
     whatsapp: SHOP_WHATSAPP,
     providerName: payment.provider_name,
-    paidAt: formatJakartaDateTime(payment.paid_at),
+    dateLabel: deliveryDateLabel(items),
     items,
     amount: payment.amount,
   });
@@ -85,7 +92,7 @@ function Receipt({ payment, items, onClose, onDelete }) {
             <div>WA {SHOP_WHATSAPP}</div>
             <div style={{ marginTop: 6 }}>Tanda Terima Pembayaran</div>
             <div>{payment.provider_name}</div>
-            <div>{new Date(payment.paid_at).toLocaleString("id-ID")}</div>
+            <div>{deliveryDateLabel(items)}</div>
           </div>
           <div className="receipt-items">
             {items.map((it) => {

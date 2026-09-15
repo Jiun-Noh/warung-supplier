@@ -38,27 +38,13 @@ function twoColumnLine(left, right) {
   return l + " ".repeat(gap) + right;
 }
 
-export function formatJakartaDateTime(iso) {
-  const parts = new Intl.DateTimeFormat("id-ID", {
-    timeZone: "Asia/Makassar",
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date(iso));
-  const get = (type) => parts.find((p) => p.type === type)?.value;
-  return `${get("day")}/${get("month")}/${get("year")} ${get("hour")}:${get("minute")}`;
-}
-
 export function buildReceiptEscPos({
   shopNameLines,
   addressLine1,
   addressLine2,
   whatsapp,
   providerName,
-  paidAt,
+  dateLabel,
   items,
   amount,
 }) {
@@ -73,7 +59,7 @@ export function buildReceiptEscPos({
   chunks.push(ALIGN_LEFT, encodeLine(DASH_LINE));
   chunks.push(ALIGN_CENTER, BOLD_ON, encodeLine("Tanda Terima Pembayaran"), BOLD_OFF);
   chunks.push(encodeLine(providerName));
-  chunks.push(encodeLine(paidAt));
+  chunks.push(encodeLine(dateLabel));
   chunks.push(ALIGN_LEFT, encodeLine(DASH_LINE));
 
   for (const it of items) {
