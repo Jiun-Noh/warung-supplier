@@ -69,6 +69,18 @@ function AddDeliverySheet({
   const [copying, setCopying] = useState(false);
   const [paidReceipt, setPaidReceipt] = useState(null); // { payment, items }
 
+  const grandTotal = rows.reduce((sum, r) => {
+    if (!r.product) return sum;
+    const qty = Number(r.qty) || 0;
+    const unitCost = Number(r.unitCost) || 0;
+    if (isEditingExisting) return sum + qty * unitCost;
+    const discountQty = Number(r.discountQty) || 0;
+    const discountPrice = Number(r.discountPrice) || 0;
+    const wasteQty = Number(r.wasteQty) || 0;
+    const normalQty = Math.max(0, qty - discountQty - wasteQty);
+    return sum + normalQty * unitCost + discountQty * discountPrice;
+  }, 0);
+
   const providerOptions = providers.filter((p) => !excludedProviderIds.has(p.id));
   const providerProducts = provider
     ? products.filter((p) => p.provider_id === provider.id && p.active)
@@ -409,6 +421,13 @@ function AddDeliverySheet({
         ) : (
           <div className="empty-state" style={{ padding: "20px 4px" }}>
             Pilih provider dulu untuk memilih barang.
+          </div>
+        )}
+
+        {provider && grandTotal > 0 && (
+          <div className="sheet-grand-total">
+            <span>Total Semua Barang</span>
+            <span>{formatRupiah(grandTotal)}</span>
           </div>
         )}
 

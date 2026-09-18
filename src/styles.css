@@ -625,6 +625,19 @@ button {
   color: var(--leaf-700);
 }
 
+.sheet-grand-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: var(--cream-200);
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--leaf-900);
+}
+
 .row-warning {
   font-size: 12px;
   font-weight: 600;
