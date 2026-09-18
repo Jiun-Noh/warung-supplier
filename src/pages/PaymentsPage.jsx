@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient.js";
-import { addDays, formatDateID, formatRupiah, todayISODate } from "../utils.js";
-import { buildReceiptEscPos, rawbtPrintUrl } from "../escpos.js";
+import { addDays, formatRupiah, sanitizeQtyInput, todayISODate } from "../utils.js";
+import { SHOP_NAME, SHOP_ADDRESS_LINE1, SHOP_ADDRESS_LINE2, SHOP_WHATSAPP, deliveryDateLabel, receiptPrintUrl } from "../receipt.js";
 
 const CYCLE_LABEL = {
   harian: "Harian",
@@ -9,43 +9,12 @@ const CYCLE_LABEL = {
   bulanan: "Bulanan",
 };
 
-const SHOP_NAME = "Warung Ceria Aneka Kue";
-const SHOP_NAME_LINES = ["Warung Ceria", "Aneka Kue"];
-const SHOP_ADDRESS_LINE1 = "Jl. Merpati No. 44B";
-const SHOP_ADDRESS_LINE2 = "Denpasar Barat";
-const SHOP_WHATSAPP = "085238848579";
-
-function deliveryDateLabel(items) {
-  const dates = [...new Set(items.map((it) => it.delivery_date))].sort();
-  if (dates.length === 0) return "";
-  if (dates.length === 1) return formatDateID(dates[0]);
-  return `${formatDateID(dates[0])} - ${formatDateID(dates[dates.length - 1])}`;
-}
-
-function receiptPrintUrl(payment, items) {
-  const bytes = buildReceiptEscPos({
-    shopNameLines: SHOP_NAME_LINES,
-    addressLine1: SHOP_ADDRESS_LINE1,
-    addressLine2: SHOP_ADDRESS_LINE2,
-    whatsapp: SHOP_WHATSAPP,
-    providerName: payment.provider_name,
-    dateLabel: deliveryDateLabel(items),
-    items,
-    amount: payment.amount,
-  });
-  return rawbtPrintUrl(bytes);
-}
-
 function defaultAdjustment() {
   return {
     discountQty: "",
     discountPrice: "",
     wasteQty: "",
   };
-}
-
-function sanitizeQtyInput(raw) {
-  return raw.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "");
 }
 
 function normalQtyOf(item, adj) {

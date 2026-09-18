@@ -12,6 +12,10 @@ export function formatDateID(isoDate) {
   return `${d}/${m}/${y}`;
 }
 
+export function sanitizeQtyInput(raw) {
+  return raw.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/, "");
+}
+
 export function todayISODate() {
   const d = new Date();
   const y = d.getFullYear();

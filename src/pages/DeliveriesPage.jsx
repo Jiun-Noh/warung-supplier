@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient.js";
-import { addDays, formatRupiah, todayISODate } from "../utils.js";
+import { addDays, formatRupiah, sanitizeQtyInput, todayISODate } from "../utils.js";
+import { receiptPrintUrl } from "../receipt.js";
 import ComboSearch from "../ComboSearch.jsx";
 
 function groupByProvider(items) {
@@ -22,7 +23,16 @@ function groupByProvider(items) {
 }
 
 function emptyRow() {
-  return { key: Math.random().toString(36).slice(2), product: null, qty: "", unitCost: "" };
+  return {
+    key: Math.random().toString(36).slice(2),
+    product: null,
+    qty: "",
+    unitCost: "",
+    discountQty: "",
+    discountPrice: "",
+    wasteQty: "",
+    showAdjust: false,
+  };
 }
 
 function rowFromExistingItem(item, products) {
@@ -43,18 +53,21 @@ function AddDeliverySheet({
   initialItems,
   excludedProviderIds,
   onSave,
+  onSaveAndSettle,
   onDeleteExisting,
   onFetchLastDelivery,
   onClose,
   onToast,
 }) {
   const isEditingExisting = Boolean(initialItems && initialItems.length > 0);
+  const hasPaidItems = isEditingExisting && initialItems.some((it) => it.paid);
   const [provider, setProvider] = useState(initialProvider || null);
   const [rows, setRows] = useState(() =>
     isEditingExisting ? initialItems.map((it) => rowFromExistingItem(it, products)) : [emptyRow()]
   );
   const [saving, setSaving] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [paidReceipt, setPaidReceipt] = useState(null); // { payment, items }
 
   const providerOptions = providers.filter((p) => !excludedProviderIds.has(p.id));
   const providerProducts = provider
@@ -105,6 +118,10 @@ function AddDeliverySheet({
           product,
           qty: String(it.qty),
           unitCost: product.net_price != null ? String(product.net_price) : "",
+          discountQty: "",
+          discountPrice: "",
+          wasteQty: "",
+          showAdjust: false,
         };
       })
       .filter(Boolean);
@@ -124,21 +141,52 @@ function AddDeliverySheet({
       onToast("Pilih barang dan isi jumlah dulu");
       return;
     }
+
+    if (isEditingExisting) {
+      setSaving(true);
+      const ok = await onSave(
+        validRows.map((r) => ({ product: r.product, qty: Number(r.qty), unitCost: Number(r.unitCost) || 0 })),
+        date
+      );
+      setSaving(false);
+      if (!ok) return;
+      onToast(`Penerimaan tersimpan · ${validRows.length} barang`);
+      onClose();
+      return;
+    }
+
+    const settleRows = validRows.map((r) => ({
+      product: r.product,
+      qty: Number(r.qty),
+      unitCost: Number(r.unitCost) || 0,
+      discountQty: Number(r.discountQty) || 0,
+      discountPrice: Number(r.discountPrice) || 0,
+      wasteQty: Number(r.wasteQty) || 0,
+    }));
+    const overLimitRow = settleRows.find((r) => r.discountQty + r.wasteQty > r.qty);
+    if (overLimitRow) {
+      onToast(`${overLimitRow.product.name}: diskon + rusak melebihi jumlah diterima`);
+      return;
+    }
+
     setSaving(true);
-    const ok = await onSave(
-      validRows.map((r) => ({ product: r.product, qty: Number(r.qty), unitCost: Number(r.unitCost) || 0 })),
-      date
-    );
+    const result = await onSaveAndSettle(settleRows, date, provider);
     setSaving(false);
-    if (!ok) return;
-    onToast(`Penerimaan tersimpan · ${validRows.length} barang`);
-    onClose();
+    if (!result.ok) return;
+    onToast(`Penerimaan tersimpan & siap dicetak · ${validRows.length} barang`);
+    setPaidReceipt({ payment: result.payment, items: result.items });
   }
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
         <h2>Catat Penerimaan · {date}</h2>
+
+        {hasPaidItems && (
+          <div className="row-warning" style={{ marginTop: -6 }}>
+            Barang ini sudah dibayar. Untuk mengubah, batalkan dulu pembayarannya di tab Bayar.
+          </div>
+        )}
 
         <ComboSearch
           label="Provider"
@@ -150,7 +198,21 @@ function AddDeliverySheet({
           locked={isEditingExisting}
           onSelect={(p) => {
             setProvider(p);
-            setRows([emptyRow()]);
+            const provProducts = products.filter((prod) => prod.provider_id === p.id && prod.active);
+            setRows(
+              provProducts.length > 0
+                ? provProducts.map((prod) => ({
+                    key: Math.random().toString(36).slice(2),
+                    product: prod,
+                    qty: "",
+                    unitCost: prod.net_price != null ? String(prod.net_price) : "",
+                    discountQty: "",
+                    discountPrice: "",
+                    wasteQty: "",
+                    showAdjust: false,
+                  }))
+                : [emptyRow()]
+            );
           }}
           onClear={() => {
             setProvider(null);
@@ -184,14 +246,16 @@ function AddDeliverySheet({
                 <div className="delivery-row" key={row.key}>
                   <div className="delivery-row-header">
                     <span className="delivery-row-title">Barang {idx + 1}</span>
-                    <button
-                      type="button"
-                      className="delivery-row-remove"
-                      onClick={() => removeRow(row.key)}
-                      aria-label="Hapus baris"
-                    >
-                      ✕
-                    </button>
+                    {!hasPaidItems && !paidReceipt && (
+                      <button
+                        type="button"
+                        className="delivery-row-remove"
+                        onClick={() => removeRow(row.key)}
+                        aria-label="Hapus baris"
+                      >
+                        ✕
+                      </button>
+                    )}
                   </div>
                   <ComboSearch
                     label="Barang"
@@ -200,7 +264,7 @@ function AddDeliverySheet({
                     getLabel={(p) => p.name}
                     getSubLabel={(p) => p.providers?.name || "Tanpa provider"}
                     selected={row.product}
-                    locked={Boolean(row.existingId)}
+                    locked={Boolean(row.existingId) || Boolean(paidReceipt) || hasPaidItems}
                     onSelect={(p) =>
                       updateRow(row.key, {
                         product: p,
@@ -216,6 +280,7 @@ function AddDeliverySheet({
                       <input
                         inputMode="numeric"
                         placeholder="0"
+                        disabled={Boolean(paidReceipt) || hasPaidItems}
                         value={row.qty}
                         onChange={(e) => updateRow(row.key, { qty: e.target.value.replace(/[^0-9]/g, "") })}
                       />
@@ -225,18 +290,121 @@ function AddDeliverySheet({
                       <input
                         inputMode="numeric"
                         placeholder="0"
+                        disabled={Boolean(paidReceipt) || hasPaidItems}
                         value={row.unitCost}
                         onChange={(e) => updateRow(row.key, { unitCost: e.target.value.replace(/[^0-9]/g, "") })}
                       />
                     </div>
                   </div>
+
+                  {!isEditingExisting &&
+                    (() => {
+                      const qty = Number(row.qty) || 0;
+                      const unitCost = Number(row.unitCost) || 0;
+                      const discountQty = Number(row.discountQty) || 0;
+                      const discountPrice = Number(row.discountPrice) || 0;
+                      const wasteQty = Number(row.wasteQty) || 0;
+                      const rowOverLimit = discountQty + wasteQty > qty;
+                      const normalQty = Math.max(0, qty - discountQty - wasteQty);
+                      const rowTotal = normalQty * unitCost + discountQty * discountPrice;
+                      return (
+                        <>
+                          
+                          <button
+                            type="button"
+                            className="row-toggle"
+                            disabled={Boolean(paidReceipt)}
+                            onClick={() => updateRow(row.key, { showAdjust: !row.showAdjust })}
+                          >
+                            {row.showAdjust ? "− Sembunyikan diskon/rusak" : "+ Ada diskon/rusak hari ini?"}
+                          </button>
+                          {row.showAdjust && (
+                            <>
+                              <div className="form-row-split">
+                                <div className="form-field">
+                                  <label>Jumlah Diskon</label>
+                                  <input
+                                    inputMode="numeric"
+                                    placeholder="0"
+                                    disabled={Boolean(paidReceipt)}
+                                    value={row.discountQty}
+                                    onChange={(e) =>
+                                      updateRow(row.key, { discountQty: sanitizeQtyInput(e.target.value) })
+                                    }
+                                  />
+                                </div>
+                                <div className="form-field">
+                                  <label>Harga Diskon (Rp)</label>
+                                  <input
+                                    inputMode="numeric"
+                                    placeholder={row.unitCost || "0"}
+                                    disabled={Boolean(paidReceipt)}
+                                    value={row.discountPrice}
+                                    onChange={(e) =>
+                                      updateRow(row.key, { discountPrice: sanitizeQtyInput(e.target.value) })
+                                    }
+                                  />
+                                </div>
+                              </div>
+                              <div className="form-field">
+                                <label>Jumlah Rusak / Dibuang</label>
+                                <input
+                                  inputMode="numeric"
+                                  placeholder="0"
+                                  disabled={Boolean(paidReceipt)}
+                                  value={row.wasteQty}
+                                  onChange={(e) =>
+                                    updateRow(row.key, { wasteQty: sanitizeQtyInput(e.target.value) })
+                                  }
+                                />
+                              </div>
+                              {rowOverLimit && (
+                                <div className="row-warning">
+                                  Diskon + rusak ({discountQty + wasteQty}) melebihi jumlah diterima ({qty})
+                                </div>
+                              )}
+                            </>
+                          )}
+                          {qty > 0 && (
+                            <div className="row-subtotal">
+                              <div className="row-subtotal-lines">
+                                <div className="row-subtotal-line">
+                                  <span>
+                                    {normalQty} × {formatRupiah(unitCost)}
+                                  </span>
+                                  <span>{formatRupiah(normalQty * unitCost)}</span>
+                                </div>
+                                {discountQty > 0 && (
+                                  <div className="row-subtotal-line">
+                                    <span>Diskon {discountQty} × {formatRupiah(discountPrice)}</span>
+                                    <span>{formatRupiah(discountQty * discountPrice)}</span>
+                                  </div>
+                                )}
+                                {wasteQty > 0 && (
+                                  <div className="row-subtotal-line row-subtotal-muted">
+                                    <span>Rusak/dibuang {wasteQty} (tidak dihitung)</span>
+                                    <span>—</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="row-subtotal-total">
+                                <span>Subtotal</span>
+                                <span>{formatRupiah(rowTotal)}</span>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                 </div>
               );
             })}
 
-            <button className="btn-secondary" style={{ width: "100%", marginBottom: 14 }} onClick={addRow}>
-              + Tambah Baris
-            </button>
+            {!paidReceipt && !hasPaidItems && (
+              <button className="btn-secondary" style={{ width: "100%", marginBottom: 14 }} onClick={addRow}>
+                + Tambah Baris
+              </button>
+            )}
           </>
         ) : (
           <div className="empty-state" style={{ padding: "20px 4px" }}>
@@ -245,12 +413,38 @@ function AddDeliverySheet({
         )}
 
         <div className="sheet-actions">
-          <button className="btn-secondary" style={{ flex: 1 }} onClick={onClose}>
-            Batal
-          </button>
-          <button className="btn-primary" style={{ flex: 1 }} disabled={saving} onClick={handleSave}>
-            {saving ? "Menyimpan…" : "Simpan Semua"}
-          </button>
+          {paidReceipt ? (
+            <>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={onClose}>
+                Tutup
+              </button>
+              <a
+                className="btn-primary"
+                style={{
+                  flex: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  textDecoration: "none",
+                }}
+                href={receiptPrintUrl(paidReceipt.payment, paidReceipt.items)}
+                onClick={onClose}
+              >
+                Cetak
+              </a>
+            </>
+          ) : (
+            <>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={onClose}>
+                {hasPaidItems ? "Tutup" : "Batal"}
+              </button>
+              {!hasPaidItems && (
+                <button className="btn-primary" style={{ flex: 1 }} disabled={saving} onClick={handleSave}>
+                  {saving ? "Menyimpan…" : isEditingExisting ? "Simpan Semua" : "Simpan & Cetak"}
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -323,6 +517,49 @@ export default function DeliveriesPage({ onToast }) {
       return false;
     }
     return true;
+  }
+
+  async function saveAndSettleItems(rows, deliveryDate, provider) {
+    const amount = rows.reduce((sum, r) => {
+      const normalQty = r.qty - r.discountQty - r.wasteQty;
+      return sum + normalQty * r.unitCost + r.discountQty * r.discountPrice;
+    }, 0);
+
+    const { data: payment, error: paymentError } = await supabase
+      .from("payments")
+      .insert({ provider_id: provider.id, provider_name: provider.name, amount })
+      .select()
+      .single();
+    if (paymentError) {
+      console.error(paymentError);
+      onToast("Gagal membuat pembayaran");
+      return { ok: false };
+    }
+
+    const payload = rows.map((r) => ({
+      delivery_date: deliveryDate,
+      provider_id: r.product.provider_id,
+      supplier_product_id: r.product.id,
+      product_name: r.product.name,
+      qty: r.qty,
+      unit_cost: r.unitCost,
+      due_date: addDays(deliveryDate, r.product.due_days || 1),
+      discount_qty: r.discountQty,
+      discount_price: r.discountQty > 0 ? r.discountPrice : null,
+      waste_qty: r.wasteQty,
+      paid: true,
+      payment_id: payment.id,
+    }));
+    const { error } = await supabase
+      .from("delivery_items")
+      .upsert(payload, { onConflict: "supplier_product_id,delivery_date" });
+    if (error) {
+      console.error(error);
+      onToast("Gagal menyimpan");
+      return { ok: false };
+    }
+
+    return { ok: true, payment, items: payload };
   }
 
   async function saveEdit() {
@@ -504,6 +741,7 @@ export default function DeliveriesPage({ onToast }) {
           initialItems={addInitialItems}
           excludedProviderIds={excludedProviderIds}
           onSave={saveItems}
+          onSaveAndSettle={saveAndSettleItems}
           onDeleteExisting={deleteDeliveryItem}
           onFetchLastDelivery={fetchLastDelivery}
           onToast={onToast}
