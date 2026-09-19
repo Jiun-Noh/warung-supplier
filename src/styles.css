@@ -472,6 +472,52 @@ button {
   background: #fff;
 }
 
+.number-stepper {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.form-field .number-stepper input {
+  flex: 1;
+  min-width: 0;
+  width: 0;
+  border: none;
+  border-radius: 0;
+  padding: 11px 4px;
+  font-size: 15px;
+  text-align: center;
+  background: transparent;
+}
+
+.number-stepper button {
+  flex: 0 0 auto;
+  width: 40px;
+  border: none;
+  background: var(--cream-200);
+  color: var(--leaf-700);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.number-stepper button:first-child {
+  border-right: 1px solid var(--line);
+}
+
+.number-stepper button:last-child {
+  border-left: 1px solid var(--line);
+}
+
+.number-stepper button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .form-row-split {
   display: flex;
   gap: 10px;

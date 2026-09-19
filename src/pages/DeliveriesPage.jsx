@@ -4,6 +4,36 @@ import { addDays, formatRupiah, sanitizeQtyInput, todayISODate } from "../utils.
 import { receiptPrintUrl } from "../receipt.js";
 import ComboSearch from "../ComboSearch.jsx";
 
+function NumberStepper({ value, onChange, step, min = 0, disabled, placeholder }) {
+  function bump(delta) {
+    const next = Math.max(min, (Number(value) || 0) + delta);
+    onChange(String(next));
+  }
+  return (
+    <div className="number-stepper">
+      <button
+        type="button"
+        tabIndex={-1}
+        disabled={disabled || (Number(value) || 0) <= min}
+        onClick={() => bump(-step)}
+        aria-label="Kurangi"
+      >
+        −
+      </button>
+      <input
+        inputMode="numeric"
+        placeholder={placeholder}
+        disabled={disabled}
+        value={value}
+        onChange={(e) => onChange(sanitizeQtyInput(e.target.value))}
+      />
+      <button type="button" tabIndex={-1} disabled={disabled} onClick={() => bump(step)} aria-label="Tambah">
+        +
+      </button>
+    </div>
+  );
+}
+
 function groupByProvider(items) {
   const map = {};
   for (const item of items) {
@@ -289,22 +319,22 @@ function AddDeliverySheet({
                   <div className="form-row-split">
                     <div className="form-field">
                       <label>Jumlah</label>
-                      <input
-                        inputMode="numeric"
+                      <NumberStepper
+                        step={1}
                         placeholder="0"
                         disabled={Boolean(paidReceipt) || hasPaidItems}
                         value={row.qty}
-                        onChange={(e) => updateRow(row.key, { qty: e.target.value.replace(/[^0-9]/g, "") })}
+                        onChange={(v) => updateRow(row.key, { qty: v })}
                       />
                     </div>
                     <div className="form-field">
                       <label>Harga Modal (Rp)</label>
-                      <input
-                        inputMode="numeric"
+                      <NumberStepper
+                        step={100}
                         placeholder="0"
                         disabled={Boolean(paidReceipt) || hasPaidItems}
                         value={row.unitCost}
-                        onChange={(e) => updateRow(row.key, { unitCost: e.target.value.replace(/[^0-9]/g, "") })}
+                        onChange={(v) => updateRow(row.key, { unitCost: v })}
                       />
                     </div>
                   </div>
@@ -335,39 +365,33 @@ function AddDeliverySheet({
                               <div className="form-row-split">
                                 <div className="form-field">
                                   <label>Jumlah Diskon</label>
-                                  <input
-                                    inputMode="numeric"
+                                  <NumberStepper
+                                    step={1}
                                     placeholder="0"
                                     disabled={Boolean(paidReceipt)}
                                     value={row.discountQty}
-                                    onChange={(e) =>
-                                      updateRow(row.key, { discountQty: sanitizeQtyInput(e.target.value) })
-                                    }
+                                    onChange={(v) => updateRow(row.key, { discountQty: v })}
                                   />
                                 </div>
                                 <div className="form-field">
                                   <label>Harga Diskon (Rp)</label>
-                                  <input
-                                    inputMode="numeric"
+                                  <NumberStepper
+                                    step={100}
                                     placeholder={row.unitCost || "0"}
                                     disabled={Boolean(paidReceipt)}
                                     value={row.discountPrice}
-                                    onChange={(e) =>
-                                      updateRow(row.key, { discountPrice: sanitizeQtyInput(e.target.value) })
-                                    }
+                                    onChange={(v) => updateRow(row.key, { discountPrice: v })}
                                   />
                                 </div>
                               </div>
                               <div className="form-field">
                                 <label>Jumlah Rusak / Dibuang</label>
-                                <input
-                                  inputMode="numeric"
+                                <NumberStepper
+                                  step={1}
                                   placeholder="0"
                                   disabled={Boolean(paidReceipt)}
                                   value={row.wasteQty}
-                                  onChange={(e) =>
-                                    updateRow(row.key, { wasteQty: sanitizeQtyInput(e.target.value) })
-                                  }
+                                  onChange={(v) => updateRow(row.key, { wasteQty: v })}
                                 />
                               </div>
                               {rowOverLimit && (
@@ -780,20 +804,14 @@ export default function DeliveriesPage({ onToast }) {
             <div className="form-row-split">
               <div className="form-field">
                 <label>Jumlah</label>
-                <input
-                  inputMode="numeric"
-                  value={editing.qty}
-                  onChange={(e) => setEditing((f) => ({ ...f, qty: e.target.value.replace(/[^0-9]/g, "") }))}
-                />
+                <NumberStepper step={1} value={editing.qty} onChange={(v) => setEditing((f) => ({ ...f, qty: v }))} />
               </div>
               <div className="form-field">
                 <label>Harga Modal (Rp)</label>
-                <input
-                  inputMode="numeric"
+                <NumberStepper
+                  step={100}
                   value={editing.unitCost}
-                  onChange={(e) =>
-                    setEditing((f) => ({ ...f, unitCost: e.target.value.replace(/[^0-9]/g, "") }))
-                  }
+                  onChange={(v) => setEditing((f) => ({ ...f, unitCost: v }))}
                 />
               </div>
             </div>
