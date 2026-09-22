@@ -4,6 +4,7 @@ import SupplierProductsPage from "./pages/SupplierProductsPage.jsx";
 import DeliveriesPage from "./pages/DeliveriesPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import PaymentsPage from "./pages/PaymentsPage.jsx";
+import CustomerOrdersPage from "./pages/CustomerOrdersPage.jsx";
 import LockScreen from "./LockScreen.jsx";
 import { todayLabel } from "./utils.js";
 
@@ -18,11 +19,14 @@ function isUnlocked() {
 }
 
 const TABS = [
-  { key: "deliveries", label: "Terima", icon: "📥" },
-  { key: "payments", label: "Bayar", icon: "💵" },
+  { key: "orders", label: "Pesanan", icon: "🧾" },
+  // Terima/Bayar disembunyikan sementara — provider sekarang ditangani manual di kertas.
+  // { key: "deliveries", label: "Terima", icon: "📥" },
+  // { key: "payments", label: "Bayar", icon: "💵" },
   { key: "providers", label: "Provider", icon: "🚚" },
   { key: "products", label: "Barang", icon: "📦" },
-  { key: "dashboard", label: "Dashboard", icon: "⏰" },
+  // Dashboard disembunyikan sementara — datanya berasal dari delivery_items yang sudah tidak diisi lagi.
+  // { key: "dashboard", label: "Dashboard", icon: "⏰" },
 ];
 
 const TITLES = {
@@ -31,10 +35,11 @@ const TITLES = {
   deliveries: "Terima Barang",
   dashboard: "Dashboard",
   payments: "Pembayaran",
+  orders: "Pesanan Pelanggan",
 };
 
 export default function App() {
-  const [tab, setTab] = useState("deliveries");
+  const [tab, setTab] = useState("orders");
   const [toast, setToast] = useState(null);
   const [unlocked, setUnlocked] = useState(isUnlocked);
 
@@ -66,6 +71,7 @@ export default function App() {
       </header>
 
       <main className="app-main">
+        {tab === "orders" && <CustomerOrdersPage onToast={showToast} />}
         {tab === "providers" && <ProvidersPage onToast={showToast} />}
         {tab === "products" && <SupplierProductsPage onToast={showToast} />}
         {tab === "deliveries" && <DeliveriesPage onToast={showToast} />}

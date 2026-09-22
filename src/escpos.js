@@ -86,6 +86,43 @@ export function buildReceiptEscPos({
   return concatBytes(chunks);
 }
 
+export function buildOrderEscPos({
+  shopNameLines,
+  addressLine1,
+  addressLine2,
+  whatsapp,
+  customerName,
+  pickupLabel,
+  items,
+  amount,
+}) {
+  const chunks = [INIT, ALIGN_CENTER, BOLD_ON, DOUBLE_ON];
+  for (const line of shopNameLines) {
+    chunks.push(encodeLine(line));
+  }
+  chunks.push(DOUBLE_OFF, BOLD_OFF);
+  chunks.push(encodeLine(addressLine1));
+  chunks.push(encodeLine(addressLine2));
+  chunks.push(encodeLine(`WA ${whatsapp}`));
+  chunks.push(ALIGN_LEFT, encodeLine(DASH_LINE));
+  chunks.push(ALIGN_CENTER, BOLD_ON, encodeLine("Struk Pesanan"), BOLD_OFF);
+  chunks.push(encodeLine(customerName));
+  chunks.push(encodeLine(`Ambil: ${pickupLabel}`));
+  chunks.push(ALIGN_LEFT, encodeLine(DASH_LINE));
+
+  for (const it of items) {
+    const rowTotal = it.qty * it.unit_price;
+    chunks.push(encodeLine(twoColumnLine(it.product_name, formatRupiah(rowTotal))));
+    chunks.push(encodeLine(`  ${it.qty} x ${formatRupiah(it.unit_price)}`));
+  }
+
+  chunks.push(encodeLine(DASH_LINE));
+  chunks.push(ALIGN_RIGHT, BOLD_ON, encodeLine(`Total: ${formatRupiah(amount)}`), BOLD_OFF, ALIGN_LEFT);
+  chunks.push(FEED_AND_CUT);
+
+  return concatBytes(chunks);
+}
+
 export function toBase64(bytes) {
   let binary = "";
   const chunkSize = 8192;

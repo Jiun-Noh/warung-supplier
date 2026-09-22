@@ -219,3 +219,32 @@ end;
 $$;
 
 grant execute on function get_receipt_print_json(uuid) to anon;
+
+-- Pesanan pelanggan (pesanan borongan yang selama ini ditulis tangan di nota).
+-- Beda dari delivery_items (penerimaan barang DARI provider): ini pesanan KE pelanggan.
+create table if not exists customer_orders (
+  id uuid primary key default gen_random_uuid(),
+  customer_name text not null,
+  pickup_date date not null,
+  pickup_time text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_customer_orders_pickup_date on customer_orders (pickup_date);
+
+create table if not exists customer_order_items (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references customer_orders(id) on delete cascade,
+  provider_id uuid references providers(id) on delete set null,
+  supplier_product_id uuid references supplier_products(id) on delete set null,
+  product_name text not null,
+  qty integer not null default 0,
+  unit_price integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_customer_order_items_order on customer_order_items (order_id);
+
+-- ⚠️ Prototipe: RLS nonaktif, sama seperti tabel lain di sini.
+alter table customer_orders disable row level security;
+alter table customer_order_items disable row level security;

@@ -559,7 +559,7 @@ button {
 }
 
 .combo-option-sub {
-  font-size: 11px;
+  font-size: 14px;
   color: var(--ink-500);
   margin-top: 2px;
 }
@@ -587,7 +587,7 @@ button {
 }
 
 .combo-selected-sub {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--ink-500);
   margin-top: 2px;
 }
