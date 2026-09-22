@@ -21,12 +21,81 @@ function emptyOrderRow() {
   };
 }
 
-function AddOrderSheet({ products, defaultPickupDate, onSave, onSaved, onClose, onToast }) {
-  const [customerName, setCustomerName] = useState("");
-  const [pickupDate, setPickupDate] = useState(defaultPickupDate);
-  const [pickupTime, setPickupTime] = useState("05:00");
-  const [rows, setRows] = useState([emptyOrderRow()]);
+const ORDER_DRAFT_KEY = "warung_order_draft";
+
+function loadOrderDraft() {
+  try {
+    const raw = localStorage.getItem(ORDER_DRAFT_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveOrderDraft(draft) {
+  try {
+    localStorage.setItem(ORDER_DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // ignore storage errors (private mode, quota, etc.)
+  }
+}
+
+function clearOrderDraft() {
+  try {
+    localStorage.removeItem(ORDER_DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function rowFromOrderItem(item, products) {
+  return {
+    key: item.id,
+    existingId: item.id,
+    product: products.find((p) => p.id === item.supplier_product_id) || {
+      id: item.supplier_product_id,
+      name: item.product_name,
+      provider_id: item.provider_id,
+      providers: item.providers,
+    },
+    qty: String(item.qty),
+    unitPrice: String(item.unit_price),
+  };
+}
+
+function AddOrderSheet({ products, customers, defaultPickupDate, initialOrder, onSave, onSaved, onClose, onToast }) {
+  const isEditing = Boolean(initialOrder);
+  const [draft] = useState(() => (isEditing ? null : loadOrderDraft()));
+  const [customerName, setCustomerName] = useState(initialOrder?.customer_name ?? draft?.customerName ?? "");
+  const [customerPhone, setCustomerPhone] = useState(initialOrder?.customer_phone ?? draft?.customerPhone ?? "");
+  const [pickupDate, setPickupDate] = useState(initialOrder?.pickup_date ?? draft?.pickupDate ?? defaultPickupDate);
+  const [pickupTime, setPickupTime] = useState(initialOrder?.pickup_time ?? draft?.pickupTime ?? "05:00");
+  const [rows, setRows] = useState(() => {
+    const existingItems = initialOrder?.customer_order_items;
+    if (existingItems && existingItems.length > 0) {
+      return existingItems.map((it) => rowFromOrderItem(it, products));
+    }
+    return draft?.rows?.length ? draft.rows : [emptyOrderRow()];
+  });
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (isEditing) return;
+    if (draft && (draft.customerName || (draft.rows || []).some((r) => r.product))) {
+      onToast("Pesanan yang belum tersimpan dipulihkan");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (isEditing) return;
+    saveOrderDraft({ customerName, customerPhone, pickupDate, pickupTime, rows });
+  }, [isEditing, customerName, customerPhone, pickupDate, pickupTime, rows]);
+
+  function handleClose() {
+    if (!isEditing) clearOrderDraft();
+    onClose();
+  }
 
   function updateRow(key, patch) {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...patch } : r)));
@@ -62,7 +131,9 @@ function AddOrderSheet({ products, defaultPickupDate, onSave, onSaved, onClose, 
 
     setSaving(true);
     const result = await onSave({
+      orderId: initialOrder?.id ?? null,
       customerName: customerName.trim(),
+      customerPhone: customerPhone.trim(),
       pickupDate,
       pickupTime,
       rows: validRows.map((r) => ({
@@ -73,15 +144,16 @@ function AddOrderSheet({ products, defaultPickupDate, onSave, onSaved, onClose, 
     });
     setSaving(false);
     if (!result.ok) return;
-    onToast(`Pesanan ${customerName.trim()} tersimpan`);
+    onToast(isEditing ? "Perubahan tersimpan" : `Pesanan ${customerName.trim()} tersimpan`);
     onSaved(result.order, result.items);
+    if (!isEditing) clearOrderDraft();
     onClose();
   }
 
   return (
-    <div className="sheet-backdrop" onClick={onClose}>
+    <div className="sheet-backdrop" onClick={handleClose}>
       <div className="sheet" onClick={(e) => e.stopPropagation()}>
-        <h2>Pesanan Baru</h2>
+        <h2>{isEditing ? "Edit Pesanan" : "Pesanan Baru"}</h2>
 
         <div className="form-row-split">
           <div className="form-field">
@@ -93,9 +165,37 @@ function AddOrderSheet({ products, defaultPickupDate, onSave, onSaved, onClose, 
             <input type="time" step="600" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} />
           </div>
         </div>
-        <div className="form-field">
-          <label>Nama Pemesan</label>
-          <input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Contoh: Salsa" />
+        <div className="form-row-split">
+          <div className="form-field">
+            <label>Nama Pemesan</label>
+            <input
+              list="customer-name-list"
+              value={customerName}
+              onChange={(e) => {
+                const value = e.target.value;
+                setCustomerName(value);
+                const match = customers.find(
+                  (c) => c.name.trim().toLowerCase() === value.trim().toLowerCase()
+                );
+                if (match) setCustomerPhone(match.phone || "");
+              }}
+              placeholder="Contoh: Salsa"
+            />
+            <datalist id="customer-name-list">
+              {customers.map((c) => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
+          </div>
+          <div className="form-field">
+            <label>No. HP</label>
+            <input
+              inputMode="tel"
+              value={customerPhone}
+              onChange={(e) => setCustomerPhone(e.target.value)}
+              placeholder="0812xxxxxxx"
+            />
+          </div>
         </div>
 
         {rows.map((row, idx) => {
@@ -178,11 +278,11 @@ function AddOrderSheet({ products, defaultPickupDate, onSave, onSaved, onClose, 
         )}
 
         <div className="sheet-actions">
-          <button className="btn-secondary" style={{ flex: 1 }} onClick={onClose}>
+          <button className="btn-secondary" style={{ flex: 1 }} onClick={handleClose}>
             Batal
           </button>
           <button className="btn-primary" style={{ flex: 1 }} disabled={saving} onClick={handleSave}>
-            {saving ? "Menyimpan…" : "Simpan Pesanan"}
+            {saving ? "Menyimpan…" : isEditing ? "Simpan Perubahan" : "Simpan Pesanan"}
           </button>
         </div>
       </div>
@@ -190,7 +290,7 @@ function AddOrderSheet({ products, defaultPickupDate, onSave, onSaved, onClose, 
   );
 }
 
-function OrderDetailSheet({ order, onClose, onDelete }) {
+function OrderDetailSheet({ order, onClose, onEdit, onDelete }) {
   const items = order.customer_order_items || [];
   const total = items.reduce((sum, it) => sum + it.qty * it.unit_price, 0);
   return (
@@ -200,6 +300,7 @@ function OrderDetailSheet({ order, onClose, onDelete }) {
         <div className="meta" style={{ marginBottom: 10 }}>
           Ambil {order.pickup_date}
           {order.pickup_time ? ` · Jam ${order.pickup_time}` : ""}
+          {order.customer_phone ? ` · ${order.customer_phone}` : ""}
         </div>
         {items.map((it) => (
           <div className="list-row" key={it.id}>
@@ -219,6 +320,11 @@ function OrderDetailSheet({ order, onClose, onDelete }) {
           </div>
           <div style={{ fontWeight: 800, fontSize: 16 }}>{formatRupiah(total)}</div>
         </div>
+
+        <button className="btn-primary" style={{ width: "100%", marginBottom: 14 }} onClick={() => onEdit(order)}>
+          Edit Pesanan
+        </button>
+
         <div className="sheet-actions">
           <button className="btn-danger" onClick={() => onDelete(order)}>
             Hapus
@@ -258,6 +364,7 @@ function OrderReceipt({ order, items, onClose }) {
             <div>WA {SHOP_WHATSAPP}</div>
             <div style={{ marginTop: 6 }}>Struk Pesanan</div>
             <div>{order.customer_name}</div>
+            {order.customer_phone && <div>{order.customer_phone}</div>}
             <div>Ambil: {pickupDateTimeLabel(order)}</div>
           </div>
           <div className="receipt-items">
@@ -306,15 +413,18 @@ export default function CustomerOrdersPage({ onToast }) {
   const [pickupDate, setPickupDate] = useState(addDays(todayISODate(), 1));
   const [products, setProducts] = useState([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
+  const [customers, setCustomers] = useState([]);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [viewingOrder, setViewingOrder] = useState(null);
+  const [editOrder, setEditOrder] = useState(null);
   const [printPreview, setPrintPreview] = useState(null); // { order, items }
   const [search, setSearch] = useState("");
 
   useEffect(() => {
     loadCatalog();
+    loadCustomers();
   }, []);
 
   useEffect(() => {
@@ -333,6 +443,28 @@ export default function CustomerOrdersPage({ onToast }) {
     setCatalogLoading(false);
   }
 
+  async function loadCustomers() {
+    const { data, error } = await supabase.from("customers").select("*").order("name", { ascending: true });
+    if (error) console.error(error);
+    setCustomers(data || []);
+  }
+
+  async function upsertCustomer(name, phone) {
+    const normalized = name.trim().toLowerCase();
+    const existing = customers.find((c) => c.name.trim().toLowerCase() === normalized);
+    if (existing) {
+      if (phone && phone !== (existing.phone || "")) {
+        await supabase
+          .from("customers")
+          .update({ phone, updated_at: new Date().toISOString() })
+          .eq("id", existing.id);
+      }
+    } else {
+      await supabase.from("customers").insert({ name: name.trim(), phone: phone || null });
+    }
+    loadCustomers();
+  }
+
   async function loadOrders(forDate) {
     setLoading(true);
     const { data, error } = await supabase
@@ -345,17 +477,46 @@ export default function CustomerOrdersPage({ onToast }) {
     setLoading(false);
   }
 
-  async function saveOrder({ customerName, pickupDate: date, pickupTime, rows }) {
-    const { data: order, error: orderError } = await supabase
-      .from("customer_orders")
-      .insert({ customer_name: customerName, pickup_date: date, pickup_time: pickupTime || null })
-      .select()
-      .single();
-    if (orderError) {
-      console.error(orderError);
-      onToast("Gagal menyimpan pesanan");
-      return { ok: false };
+  async function saveOrder({ orderId, customerName, customerPhone, pickupDate: date, pickupTime, rows }) {
+    const orderFields = {
+      customer_name: customerName,
+      customer_phone: customerPhone || null,
+      pickup_date: date,
+      pickup_time: pickupTime || null,
+    };
+
+    let order;
+    if (orderId) {
+      const { data, error } = await supabase
+        .from("customer_orders")
+        .update(orderFields)
+        .eq("id", orderId)
+        .select()
+        .single();
+      if (error) {
+        console.error(error);
+        onToast("Gagal menyimpan perubahan");
+        return { ok: false };
+      }
+      order = data;
+
+      const { error: deleteError } = await supabase.from("customer_order_items").delete().eq("order_id", orderId);
+      if (deleteError) {
+        console.error(deleteError);
+        onToast("Gagal memperbarui barang pesanan");
+        return { ok: false };
+      }
+    } else {
+      const { data, error } = await supabase.from("customer_orders").insert(orderFields).select().single();
+      if (error) {
+        console.error(error);
+        onToast("Gagal menyimpan pesanan");
+        return { ok: false };
+      }
+      order = data;
     }
+
+    upsertCustomer(customerName, customerPhone);
 
     const payload = rows.map((r) => ({
       order_id: order.id,
@@ -368,10 +529,11 @@ export default function CustomerOrdersPage({ onToast }) {
     const { error: itemsError } = await supabase.from("customer_order_items").insert(payload);
     if (itemsError) {
       console.error(itemsError);
-      onToast("Pesanan dibuat tapi gagal menyimpan barang");
+      onToast(orderId ? "Perubahan tersimpan sebagian, barang gagal disimpan" : "Pesanan dibuat tapi gagal menyimpan barang");
       return { ok: false };
     }
 
+    loadOrders(pickupDate);
     return { ok: true, order, items: payload };
   }
 
@@ -461,6 +623,7 @@ export default function CustomerOrdersPage({ onToast }) {
       {showAdd && (
         <AddOrderSheet
           products={products}
+          customers={customers}
           defaultPickupDate={pickupDate}
           onSave={saveOrder}
           onSaved={(order, items) => setPrintPreview({ order, items })}
@@ -470,7 +633,28 @@ export default function CustomerOrdersPage({ onToast }) {
       )}
 
       {viewingOrder && (
-        <OrderDetailSheet order={viewingOrder} onClose={() => setViewingOrder(null)} onDelete={deleteOrder} />
+        <OrderDetailSheet
+          order={viewingOrder}
+          onClose={() => setViewingOrder(null)}
+          onEdit={(order) => {
+            setViewingOrder(null);
+            setEditOrder(order);
+          }}
+          onDelete={deleteOrder}
+        />
+      )}
+
+      {editOrder && (
+        <AddOrderSheet
+          products={products}
+          customers={customers}
+          defaultPickupDate={pickupDate}
+          initialOrder={editOrder}
+          onSave={saveOrder}
+          onSaved={(order, items) => setPrintPreview({ order, items })}
+          onToast={onToast}
+          onClose={() => setEditOrder(null)}
+        />
       )}
 
       {printPreview && (

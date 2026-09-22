@@ -121,6 +121,13 @@ export default function SupplierProductsPage({ onToast }) {
 
   if (loading) return <div className="empty-state">Memuat…</div>;
 
+  const productNamesByProvider = new Map();
+  for (const prod of products) {
+    if (!prod.provider_id) continue;
+    if (!productNamesByProvider.has(prod.provider_id)) productNamesByProvider.set(prod.provider_id, []);
+    productNamesByProvider.get(prod.provider_id).push(prod.name);
+  }
+
   const filteredProducts = search.trim()
     ? products.filter((p) => p.name.toLowerCase().includes(search.trim().toLowerCase()))
     : products;
@@ -201,9 +208,10 @@ export default function SupplierProductsPage({ onToast }) {
             <h2>Tambah Barang Baru</h2>
             <ComboSearch
               label="Provider"
-              placeholder="Cari provider…"
+              placeholder="Cari provider atau nama barang…"
               options={providers}
               getLabel={(p) => p.name}
+              getSearchText={(p) => [p.name, ...(productNamesByProvider.get(p.id) || [])].join(" ")}
               selected={providers.find((p) => p.id === form.provider_id) || null}
               onSelect={(p) => setForm((f) => ({ ...f, provider_id: p.id }))}
               onClear={() => setForm((f) => ({ ...f, provider_id: "" }))}
@@ -278,9 +286,10 @@ export default function SupplierProductsPage({ onToast }) {
             <h2>Edit Barang</h2>
             <ComboSearch
               label="Provider"
-              placeholder="Cari provider…"
+              placeholder="Cari provider atau nama barang…"
               options={providers}
               getLabel={(p) => p.name}
+              getSearchText={(p) => [p.name, ...(productNamesByProvider.get(p.id) || [])].join(" ")}
               selected={providers.find((p) => p.id === editing.provider_id) || null}
               onSelect={(p) => setEditing((f) => ({ ...f, provider_id: p.id }))}
               onClear={() => setEditing((f) => ({ ...f, provider_id: "" }))}

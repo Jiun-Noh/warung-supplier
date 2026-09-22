@@ -15,7 +15,7 @@ export function deliveryDateLabel(items) {
 }
 
 export function pickupDateTimeLabel(order) {
-  return `${formatDateID(order.pickup_date)}${order.pickup_time ? ` · ${order.pickup_time}` : ""}`;
+  return `${formatDateID(order.pickup_date)}${order.pickup_time ? ` - ${order.pickup_time}` : ""}`;
 }
 
 export function orderPrintUrl(order, items) {
@@ -25,6 +25,7 @@ export function orderPrintUrl(order, items) {
     addressLine2: SHOP_ADDRESS_LINE2,
     whatsapp: SHOP_WHATSAPP,
     customerName: order.customer_name,
+    customerPhone: order.customer_phone,
     pickupLabel: pickupDateTimeLabel(order),
     items,
     amount: items.reduce((sum, it) => sum + it.qty * it.unit_price, 0),

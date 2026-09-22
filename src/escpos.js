@@ -92,6 +92,7 @@ export function buildOrderEscPos({
   addressLine2,
   whatsapp,
   customerName,
+  customerPhone,
   pickupLabel,
   items,
   amount,
@@ -107,6 +108,9 @@ export function buildOrderEscPos({
   chunks.push(ALIGN_LEFT, encodeLine(DASH_LINE));
   chunks.push(ALIGN_CENTER, BOLD_ON, encodeLine("Struk Pesanan"), BOLD_OFF);
   chunks.push(encodeLine(customerName));
+  if (customerPhone) {
+    chunks.push(encodeLine(customerPhone));
+  }
   chunks.push(encodeLine(`Ambil: ${pickupLabel}`));
   chunks.push(ALIGN_LEFT, encodeLine(DASH_LINE));
 
