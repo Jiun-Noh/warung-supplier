@@ -78,6 +78,10 @@ function AddOrderSheet({ products, customers, defaultPickupDate, initialOrder, o
     return draft?.rows?.length ? draft.rows : [emptyOrderRow()];
   });
   const [saving, setSaving] = useState(false);
+  const [nameOpen, setNameOpen] = useState(false);
+
+  const nameQuery = customerName.trim().toLowerCase();
+  const nameMatches = customers.filter((c) => !nameQuery || c.name.toLowerCase().includes(nameQuery)).slice(0, 50);
 
   useEffect(() => {
     if (isEditing) return;
@@ -166,26 +170,43 @@ function AddOrderSheet({ products, customers, defaultPickupDate, initialOrder, o
           </div>
         </div>
         <div className="form-row-split">
-          <div className="form-field">
+          <div className="form-field combo-field">
             <label>Nama Pemesan</label>
             <input
-              list="customer-name-list"
+              autoComplete="off"
               value={customerName}
               onChange={(e) => {
                 const value = e.target.value;
                 setCustomerName(value);
+                setNameOpen(true);
                 const match = customers.find(
                   (c) => c.name.trim().toLowerCase() === value.trim().toLowerCase()
                 );
                 if (match) setCustomerPhone(match.phone || "");
               }}
+              onFocus={() => setNameOpen(true)}
+              onBlur={() => setTimeout(() => setNameOpen(false), 150)}
               placeholder="Contoh: Salsa"
             />
-            <datalist id="customer-name-list">
-              {customers.map((c) => (
-                <option key={c.id} value={c.name} />
-              ))}
-            </datalist>
+            {nameOpen && nameMatches.length > 0 && (
+              <div className="combo-dropdown">
+                {nameMatches.map((c) => (
+                  <div
+                    key={c.id}
+                    className="combo-option"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setCustomerName(c.name);
+                      setCustomerPhone(c.phone || "");
+                      setNameOpen(false);
+                    }}
+                  >
+                    <div>{c.name}</div>
+                    {c.phone && <div className="combo-option-sub">{c.phone}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div className="form-field">
             <label>No. HP</label>
@@ -444,25 +465,21 @@ export default function CustomerOrdersPage({ onToast }) {
   }
 
   async function loadCustomers() {
-    const { data, error } = await supabase.from("customers").select("*").order("name", { ascending: true });
+    const { data, error } = await supabase
+      .from("customer_orders")
+      .select("customer_name, customer_phone")
+      .order("created_at", { ascending: false })
+      .limit(1000);
     if (error) console.error(error);
-    setCustomers(data || []);
-  }
-
-  async function upsertCustomer(name, phone) {
-    const normalized = name.trim().toLowerCase();
-    const existing = customers.find((c) => c.name.trim().toLowerCase() === normalized);
-    if (existing) {
-      if (phone && phone !== (existing.phone || "")) {
-        await supabase
-          .from("customers")
-          .update({ phone, updated_at: new Date().toISOString() })
-          .eq("id", existing.id);
-      }
-    } else {
-      await supabase.from("customers").insert({ name: name.trim(), phone: phone || null });
+    const byName = new Map();
+    for (const o of data || []) {
+      const name = o.customer_name.trim();
+      const key = name.toLowerCase();
+      const existing = byName.get(key);
+      if (!existing) byName.set(key, { id: key, name, phone: o.customer_phone || "" });
+      else if (!existing.phone && o.customer_phone) existing.phone = o.customer_phone;
     }
-    loadCustomers();
+    setCustomers([...byName.values()].sort((a, b) => a.name.localeCompare(b.name, "id", { sensitivity: "base" })));
   }
 
   async function loadOrders(forDate) {
@@ -516,8 +533,6 @@ export default function CustomerOrdersPage({ onToast }) {
       order = data;
     }
 
-    upsertCustomer(customerName, customerPhone);
-
     const payload = rows.map((r) => ({
       order_id: order.id,
       provider_id: r.product.provider_id,
@@ -534,6 +549,7 @@ export default function CustomerOrdersPage({ onToast }) {
     }
 
     loadOrders(pickupDate);
+    loadCustomers();
     return { ok: true, order, items: payload };
   }
 

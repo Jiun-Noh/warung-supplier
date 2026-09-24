@@ -1,4 +1,8 @@
-import { formatRupiah } from "./utils.js";
+import { formatRupiah as formatRupiahCompact } from "./utils.js";
+
+function formatRupiah(n) {
+  return formatRupiahCompact(n).replace(/^Rp/, "Rp ");
+}
 
 const LINE_WIDTH = 32;
 const ESC = 0x1b;
@@ -12,6 +16,7 @@ const BOLD_ON = new Uint8Array([ESC, 0x45, 0x01]);
 const BOLD_OFF = new Uint8Array([ESC, 0x45, 0x00]);
 const DOUBLE_ON = new Uint8Array([GS, 0x21, 0x11]);
 const DOUBLE_OFF = new Uint8Array([GS, 0x21, 0x00]);
+const DOUBLE_HEIGHT_ON = new Uint8Array([GS, 0x21, 0x01]);
 const FEED_AND_CUT = new Uint8Array([0x0a, 0x0a, 0x0a, GS, 0x56, 0x42, 0x00]);
 
 const DASH_LINE = "-".repeat(LINE_WIDTH);
@@ -97,17 +102,17 @@ export function buildOrderEscPos({
   items,
   amount,
 }) {
-  const chunks = [INIT, ALIGN_CENTER, BOLD_ON, DOUBLE_ON];
+  const chunks = [INIT, ALIGN_CENTER, DOUBLE_ON];
   for (const line of shopNameLines) {
     chunks.push(encodeLine(line));
   }
-  chunks.push(DOUBLE_OFF, BOLD_OFF);
+  chunks.push(DOUBLE_OFF);
   chunks.push(encodeLine(addressLine1));
   chunks.push(encodeLine(addressLine2));
   chunks.push(encodeLine(`WA ${whatsapp}`));
   chunks.push(ALIGN_LEFT, encodeLine(DASH_LINE));
-  chunks.push(ALIGN_CENTER, BOLD_ON, encodeLine("Struk Pesanan"), BOLD_OFF);
-  chunks.push(encodeLine(customerName));
+  chunks.push(ALIGN_CENTER, encodeLine("Struk Pesanan"));
+  chunks.push(customerName.length <= LINE_WIDTH / 2 ? DOUBLE_ON : DOUBLE_HEIGHT_ON, encodeLine(customerName), DOUBLE_OFF);
   if (customerPhone) {
     chunks.push(encodeLine(customerPhone));
   }
@@ -121,7 +126,7 @@ export function buildOrderEscPos({
   }
 
   chunks.push(encodeLine(DASH_LINE));
-  chunks.push(ALIGN_RIGHT, BOLD_ON, encodeLine(`Total: ${formatRupiah(amount)}`), BOLD_OFF, ALIGN_LEFT);
+  chunks.push(ALIGN_LEFT, DOUBLE_HEIGHT_ON, encodeLine(twoColumnLine("Total", formatRupiah(amount))), DOUBLE_OFF);
   chunks.push(FEED_AND_CUT);
 
   return concatBytes(chunks);

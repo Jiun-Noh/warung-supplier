@@ -252,15 +252,4 @@ alter table customer_order_items disable row level security;
 -- Nomor HP pemesan, disimpan sebagai snapshot per pesanan (sama seperti product_name/unit_cost di delivery_items).
 alter table customer_orders add column if not exists customer_phone text;
 
--- Direktori pelanggan untuk autolengkapi nama & nomor HP saat mencatat pesanan baru.
-create table if not exists customers (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  phone text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create unique index if not exists customers_name_unique_idx on customers (lower(trim(name)));
-
-alter table customers disable row level security;
+-- Daftar saran nama/HP pelanggan diambil langsung dari customer_orders (tidak perlu tabel terpisah).
